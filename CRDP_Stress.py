@@ -19,100 +19,75 @@ import argparse
 import time
 import os.path
 from os import path
+from CRDP_REST_API import *
+import random
 
+# 
+def getRNDStr(t_len):
+    return ''.join(random.choices("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", k=t_len))
+#
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-i', nargs=1, action='store', required=True, dest='infile')
-parser.add_argument('-o', nargs=1, action='store', required=True, dest='outfile')
 parser.add_argument('-e', nargs=1, action='store', required=True, dest='hostnameCRDP')
+parser.add_argument('-p', nargs=1, action='store', required=True, dest='protectionPolicy')
 parser.add_argument('-b', nargs=1, action='store', required=True, dest='batchSize', type=int)
-parser.add_argument('-header', default=False, action=argparse.BooleanOptionalAction, dest='headerFlag')
+parser.add_argument('-bulk', action=argparse.BooleanOptionalAction)
 
 args = parser.parse_args()
 
 tmpStr = "\nCDRP Stress starting..."
 print(tmpStr)
-# time - get start time
-starttime = time.time()
 
 # Echo Input Parameters
-inFile = args.infile[0]
-outFile = args.outfile[0]
-hostCRDP = args.hostnameCRDP[0]
-batchSize = args.batchSize[0]
-headerFlag = False
-if args.headerFlag:
-    headerFlag = True
-
+hostCRDP            = args.hostnameCRDP[0]
+batchSize           = args.batchSize[0]
+protectionPolicy    = args.protectionPolicy[0]
+bulkFlag            = False
+if args.bulk:
+    bulkFlag = True
 
 print(" Input Parameters:")
-tmpStr = "  InputFile: %s\n  Outputfile: %s\n  CRDPHost: %s\n  BatchSize: %s\n  HeaderPresent: %s\n" %(inFile, outFile, hostCRDP, batchSize, headerFlag)
+tmpStr = "  CRDPHost: %s\n  BatchSize: %s\n  ProtectionPolicy: %s\n  BulkProtection: %s\n" %(hostCRDP, batchSize, protectionPolicy, bulkFlag)
 print(tmpStr)
 
-# Initialize dictionary for data from input CSV file
-csvInputData = {} # dictionary
+# Get a string of 64 characters.  Random, if possible
+c_data = getRNDStr(64)
 
-   
-# Open CSV file and read
-try:
-    with open(inFile, 'r', newline='') as csvfile:
-        csvReader = csv.reader(csvfile, dialect='excel')
-        for row in csvReader:
-            t_key, t_plainText = row
-            csvInputData[t_key] = t_plainText
+# how many times do we want to encrypt it?
+c_count = batchSize
 
-        dataSize = len(csvInputData)
-        print("  ", inFile, "has been read.  It contains", dataSize, "rows.")
-          
-except:
-    errStr = "ERROR Opening CSV File: %s" %inFile
-    print(errStr)
+# time - get start time
+starttime = time.time()
+print("Start time: ", starttime)
 
-exit()
-
-# To have the computer perform some auto-checking of changes, take the hash file of the older
-# output file (if it exists) for later comparison.
-
-oldOutFileHash = 0
-if path.exists(finalOutFile):
-    with open(finalOutFile,"rb") as oOFN:
-        tmpFN = oOFN.read()
-        oldOutFileHash =  hashlib.md5(tmpFN).hexdigest()
-
-# All files have been processed and all rows within each file have been processed. 
-# csvMasterdata[] should now contain contents from all input files
-
-rowCount = 0
-with open(finalOutFile, 'w', newline='') as csvfile:
-    csvWriter = csv.writer(csvfile, dialect='excel')
-
-    for row in csvMasterData:
-        csvWriter.writerow(row)  
-        rowCount += 1
-      
-    print("  -> Final output file", finalOutFile, "has been written with", rowCount, "rows.")
-
-newOutFileHash = 0
-if path.exists(finalOutFile):
-    with open(finalOutFile,"rb") as oOFN:
-        tmpFN = oOFN.read()
-        newOutFileHash =  hashlib.md5(tmpFN).hexdigest()
-
-# For the sake of logging and notification, note if the hash value of the combined file is different from its 
-# earlier version, if it existed.
-fileChangeStr = "*CSV HASH CHANGE.* "
-if newOutFileHash == oldOutFileHash:
-    fileChangeStr = "No CSV hash change. "
+if bulkFlag == False:
+    # time - re-retrieve start time
+    starttime = time.time()
     
-prodCnt = rowCount - 1  # skip header row
+    for i in range(c_count):
+        p_data, p_ver = protectData(hostCRDP, c_data, protectionPolicy)
+
+else:
+    c_data_array = []
+    p_data_array = []
+
+    for i in range(c_count):
+        c_data_array.append(c_data)
+
+    # time - re-retrieve start time
+    starttime = time.time()
+    p_data_array, p_ver = protectBulkData(hostCRDP, c_data_array, protectionPolicy)
+
+# time - get end time
 endtime = time.time()
+print("End time: ", endtime)
+
 deltatimesec = (endtime-starttime)
-pRate = prodCnt/deltatimesec
+pRate = c_count/deltatimesec
 
-print("   old MD5 hash:", oldOutFileHash)
-print("   new MD5 hash:", newOutFileHash)
-outStr = "CSV File Merge App completed. %s files & %s products processed. Process time: %5.2f sec.  Rate: %5.2f pps. %s" %(fileCount, prodCnt, deltatimesec, pRate, fileChangeStr )
-createProgressLogEntry(outStr)
+outStr = "\n* CRDP Test Completed. %s plaintext strings processed. Process time: %5.2f sec.  Rate: %5.2f tps. " %(c_count, deltatimesec, pRate) 
+print(outStr)
 
-if newOutFileHash != oldOutFileHash:
-    postToSlack_GB_FFH(outStr)  # post to Slack only if there is a hash change
+
+    
+
