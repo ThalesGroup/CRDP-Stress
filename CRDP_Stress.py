@@ -21,6 +21,8 @@ import os.path
 from os import path
 from CRDP_REST_API import *
 import random
+from tqdm import tqdm
+from termcolor import colored
 
 #  --------- DEFINED Routines -----------------
 def getRNDStr(t_len):
@@ -43,7 +45,7 @@ args = parser.parse_args()
 
 
 tmpStr = "\nCDRP Stress starting... LET THE STRESS BEGIN!"
-print(tmpStr)
+print(colored(tmpStr, 'white', attrs=["underline"]))
 
 # Echo Input Parameters
 hostCRDP            = args.hostnameCRDP[0]
@@ -81,20 +83,21 @@ c_count = batchSize
 #####################################################################
 starttime = time.time()
 
-print("*** CRDP PROTECTION Test Started ***")
+print(colored("*** CRDP PROTECTION Test Started ***", 'white', attrs=["bold"]))
 print(" --> Start time: ", starttime)
 
 if bulkFlag == False:
     # time - re-retrieve start time
     starttime = time.time()
     
-    for i in range(c_count):
+    for i in tqdm(range(c_count), desc="Discrete PROTECT Progress"):
         p_data, p_version = protectData(hostCRDP, c_data, protectionPolicy)
 
 else:
-    for i in range(c_count):
+    for i in tqdm(range(c_count), desc="Bulk PROTECT Prep Progress"):
         c_data_array.append(c_data)
 
+    print(" -->  CRDP Bulk PROTECT processing...")
     # time - re-retrieve start time
     starttime = time.time()
     p_data_array, p_version = protectBulkData(hostCRDP, c_data_array, protectionPolicy)
@@ -108,8 +111,9 @@ print(" -->   End time: ", endtime)
 deltatimesec = (endtime-starttime)
 pRate = c_count/deltatimesec
 
-outStr = "\n* CRDP Test Completed - PROTECT. %s plaintext strings processed. Process time: %5.2f sec.  Rate: %5.2f tps. Bulk processing: %s\n" %(c_count, deltatimesec, pRate, bulkFlag) 
-print(outStr)
+outStr = "\n* CRDP Test Completed - PROTECT. %s plaintext strings processed. Process time: %5.2f sec.  Rate: %5.2f tps.\n" %(c_count, deltatimesec, pRate) 
+print(colored(outStr, 'light_green', attrs=["bold"]))
+
 
 #####################################################################
 # Let's decrypt the data as fast as we can in two ways:  
@@ -117,19 +121,21 @@ print(outStr)
 #####################################################################
 starttime = time.time()
 
-print("*** CRDP REVEAL Test Started ***")
+print(colored("*** CRDP REVEAL Test Started ***", 'white', attrs=["bold"]))
 print(" --> Start time: ", starttime)
 
 if bulkFlag == False:
     # time - re-retrieve start time
     starttime = time.time()
     
-    for i in range(c_count):
+    for i in tqdm(range(c_count), desc="Discrete REVEAL Progress"):
         r_data = revealData(hostCRDP, p_data, protectionPolicy, p_version, r_user)
 
 else:
-    for i in range(c_count):
+    for i in tqdm(range(c_count), desc="Bulk REVEAL Prep Progress"):
         c_data_array.append(c_data)
+
+    print(" -->  CRDP Bulk REVEAL processing...")
 
     # time - re-retrieve start time
     starttime = time.time()
@@ -144,8 +150,9 @@ print(" -->   End time: ", endtime)
 deltatimesec = (endtime-starttime)
 pRate = c_count/deltatimesec
 
-outStr = "\n* CRDP Test Completed - REVEAL. %s ciphertrext strings processed. Process time: %5.2f sec.  Rate: %5.2f tps. Bulk processing: %s\n" %(c_count, deltatimesec, pRate, bulkFlag) 
-print(outStr)
+outStr = "\n* CRDP Test Completed - REVEAL. %s ciphertrext strings processed. Process time: %5.2f sec.  Rate: %5.2f tps.\n" %(c_count, deltatimesec, pRate) 
+print(colored(outStr, 'light_green', attrs=["bold"]))
+
 outStr = "    PT: %s\n    CT: %s\n    RT: %s" %(c_data, p_data, r_data) 
 print(outStr)
 
