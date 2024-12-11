@@ -138,7 +138,6 @@ def revealBulkData(
     t_headers = {APP_CONTENT_TYPE: APP_JSON}
     t_dataStr = {
         CRDP_PROTECTION_POLICY_NAME: t_protectionPolicy,
-        CRDP_EXTERNAL_VER_NAME: t_externalVersion,
         CRDP_USERNAME_NAME: t_user,
         CRDP_PROTECTED_DATA_ARRAY_NAME: t_dataArray,
     }

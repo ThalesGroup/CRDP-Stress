@@ -71,19 +71,19 @@ tmpStr = (
 )
 print(tmpStr)
 
-# Get a string of 64 random characters.
-c_data = getRNDStr(48)
+# Get a string of 64 random characters and treat is as cleartext (plaintext)
+p_data = getRNDStr(48)
 
 # Reserve some variables for later use
-c_data_array = []  # reserve for later use
-p_data = []  # reserve for later use
-p_data_array = []  # reserve for later use
-p_version = []  # reserve for later use
-r_data = []  # reserve for later use
-r_data_array = []  # reserve for later use
+p_data_array = []  # reserve for later use - cleartext (plaintext)
+c_data = []  # reserve for later use - protectedtext
+c_data_array = []  # reserve for later use - protectedtext
+c_version = []  # reserve for later use - cipher version
+r_data = []  # reserve for later use - revealedtext
+r_data_array = []  # reserve for later use - revealtext
 
 # how many times do we want to encrypt it?
-c_count = batchSize
+p_count = batchSize
 
 #####################################################################
 # Let's encrypt the data as fast as we can in two ways:
@@ -98,18 +98,19 @@ if bulkFlag == False:
     # time - re-retrieve start time
     starttime = time.time()
 
-    for i in tqdm(range(c_count), desc="Discrete PROTECT Progress"):
-        p_data, p_version = protectData(hostCRDP, c_data, protectionPolicy)
+    for i in tqdm(range(p_count), desc="Discrete PROTECT Progress"):
+        c_data, c_version = protectData(hostCRDP, p_data, protectionPolicy)
 
 else:
-    for i in tqdm(range(c_count), desc="Bulk PROTECT Prep Progress"):
-        c_data_array.append(c_data)
+    # build plaintext array for processing
+    for i in range(p_count):
+        p_data_array.append(p_data)
 
     print(" -->  CRDP Bulk PROTECT processing...")
     # time - re-retrieve start time
     starttime = time.time()
-    p_data_array, p_version = protectBulkData(hostCRDP, c_data_array, protectionPolicy)
-    p_data = p_data_array[0][
+    c_data_array, c_version = protectBulkData(hostCRDP, p_data_array, protectionPolicy)
+    c_data = c_data_array[0][
         CRDP_PROTECTED_DATA_NAME
     ]  # retreive first recorded in returned data
 
@@ -119,11 +120,11 @@ endtime = time.time()
 print(" -->   End time: ", endtime)
 
 deltatimesec = endtime - starttime
-pRate = c_count / deltatimesec
+pRate = p_count / deltatimesec
 
 outStr = (
     "\nCRDP Test Completed - PROTECT. %s plaintext strings processed. Process time: %5.2f sec.  Rate: %5.2f tps.\n"
-    % (c_count, deltatimesec, pRate)
+    % (p_count, deltatimesec, pRate)
 )
 print(colored(outStr, "light_green", attrs=["bold"]))
 
@@ -141,19 +142,18 @@ if bulkFlag == False:
     # time - re-retrieve start time
     starttime = time.time()
 
-    for i in tqdm(range(c_count), desc="Discrete REVEAL Progress"):
-        r_data = revealData(hostCRDP, p_data, protectionPolicy, p_version, r_user)
+    for i in tqdm(range(p_count), desc="Discrete REVEAL Progress"):
+        r_data = revealData(hostCRDP, c_data, protectionPolicy, c_version, r_user)
 
 else:
-    for i in tqdm(range(c_count), desc="Bulk REVEAL Prep Progress"):
-        c_data_array.append(c_data)
+    # no need to rebuild c_data_array since it was populated earlier
 
     print(" -->  CRDP Bulk REVEAL processing...")
 
     # time - re-retrieve start time
     starttime = time.time()
     r_data_array = revealBulkData(
-        hostCRDP, p_data_array, protectionPolicy, p_version, r_user
+        hostCRDP, c_data_array, protectionPolicy, c_version, r_user
     )
     r_data = r_data_array[0][CRDP_DATA_NAME]  # retreive first recorded in returned data
 
@@ -163,16 +163,16 @@ endtime = time.time()
 print(" -->   End time: ", endtime)
 
 deltatimesec = endtime - starttime
-pRate = c_count / deltatimesec
+pRate = p_count / deltatimesec
 
 outStr = (
     "\nCRDP Test Completed - REVEAL. %s ciphertrext strings processed. Process time: %5.2f sec.  Rate: %5.2f tps.\n"
-    % (c_count, deltatimesec, pRate)
+    % (p_count, deltatimesec, pRate)
 )
 print(colored(outStr, "light_green", attrs=["bold"]))
 
 outstr = "Plaintext (PT), CipherText (CT), and RevealText (RT) are as follows:"
 print(outstr)
 
-outStr = " PT: %s\n CT: %s\n RT: %s" % (c_data, p_data, r_data)
+outStr = " PT: %s\n CT: %s\n RT: %s" % (p_data, c_data, r_data)
 print(colored(outStr, "light_grey"))
