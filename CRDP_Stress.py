@@ -171,5 +171,8 @@ outStr = (
 )
 print(colored(outStr, "light_green", attrs=["bold"]))
 
-outStr = "    PT: %s\n    CT: %s\n    RT: %s" % (c_data, p_data, r_data)
-print(outStr)
+outstr = "Plaintext (PT), CipherText (CT), and RevealText (RT) are as follows:"
+print(outstr)
+
+outStr = " PT: %s\n CT: %s\n RT: %s" % (c_data, p_data, r_data)
+print(colored(outStr, "light_grey"))
