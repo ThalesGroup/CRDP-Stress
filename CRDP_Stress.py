@@ -19,6 +19,8 @@ from CRDP_REST_API import *
 import random
 from tqdm import tqdm
 from termcolor import colored
+import os
+import base64
 
 
 #  --------- DEFINED Routines -----------------
@@ -46,6 +48,9 @@ parser.add_argument(
 parser.add_argument("-u", nargs=1, action="store", required=True, dest="username")
 parser.add_argument("-bulk", action=argparse.BooleanOptionalAction)
 
+parser.add_argument(
+    "-f", nargs=1, action="store", required=False, dest="inFile", type=argparse.FileType('r'))
+
 args = parser.parse_args()
 
 
@@ -61,14 +66,32 @@ if args.bulk:
     bulkFlag = True
 r_user = args.username[0]
 
+# Special processing if file is supplied.  Specifically, if it is provided
+# we need to a) ensure the file exists and b) we process it as BULK
+inFile = ""
+if args.inFile:
+    inFile = str(args.inFile[0].name)
+
+    if os.path.isfile(inFile):
+        bulkFlag = True
+
 #####################################################################
 # Echo back input information for validation
 #####################################################################
 print(" Input Parameters:")
-tmpStr = (
-    "  CRDPHost: %s\n  BatchSize: %s\n  ProtectionPolicy: %s\n  BulkProtection: %s\n"
-    % (hostCRDP, batchSize, protectionPolicy, bulkFlag)
-)
+
+# include filename if it is specified
+if len(inFile) > 0:
+    tmpStr = (
+        "  CRDPHost: %s\n  ProtectionPolicy: %s\n  BulkProtection: %s\n  Input File: %s\n"
+        % (hostCRDP, protectionPolicy, bulkFlag, inFile)
+    )
+else:
+    tmpStr = (
+        "  CRDPHost: %s\n  BatchSize: %s\n  ProtectionPolicy: %s\n  BulkProtection: %s\n"
+        % (hostCRDP, batchSize, protectionPolicy, bulkFlag)
+    )
+
 print(tmpStr)
 
 # Get a string of 64 random characters and treat is as cleartext (plaintext)
@@ -84,6 +107,7 @@ r_data_array = []  # reserve for later use - revealtext
 
 # how many times do we want to encrypt it?
 p_count = batchSize
+data_size = len(p_data)*p_count
 
 #####################################################################
 # Let's encrypt the data as fast as we can in two ways:
@@ -94,6 +118,7 @@ starttime = time.time()
 print(colored("*** CRDP PROTECTION Test Started ***", "white", attrs=["bold"]))
 print(" --> Start time: ", starttime)
 
+# Process as bulk if specified as such or if file is specified
 if bulkFlag == False:
     # time - re-retrieve start time
     starttime = time.time()
@@ -102,10 +127,24 @@ if bulkFlag == False:
         c_data, c_version = protectData(hostCRDP, p_data, protectionPolicy)
 
 else:
-    # build plaintext array for processing
-    for i in range(p_count):
-        p_data_array.append(p_data)
+    # build plaintext array for processing unless file is specified
+    if len(inFile) > 0:
+        with open(inFile, 'rb') as f:
+            # read in file content but only keep ascii characters
+            f_content = f.read()            
+            f_ascii = f_content.decode('ascii', 'ignore')
+            data_size = len(f_ascii)
 
+            # once you have ascii characters, add them to the
+            # plaintext array
+            p_data_array.clear()
+            p_data_array.append(f_ascii)
+
+    else:
+        for i in range(p_count):
+            p_data_array.append(p_data)
+
+    p_data = p_data_array[0]
     print(" -->  CRDP Bulk PROTECT processing...")
     # time - re-retrieve start time
     starttime = time.time()
@@ -120,11 +159,11 @@ endtime = time.time()
 print(" -->   End time: ", endtime)
 
 deltatimesec = endtime - starttime
-pRate = p_count / deltatimesec
+pRate = data_size / deltatimesec
 
 outStr = (
-    "\nCRDP Test Completed - PROTECT. %s plaintext strings processed. Process time: %5.2f sec.  Rate: %5.2f tps.\n"
-    % (p_count, deltatimesec, pRate)
+    "\nCRDP Test Completed - PROTECT. %s plaintext bytes processed. Process time: %5.2f sec.  Rate: %5.2f Bps.\n"
+    % (data_size, deltatimesec, pRate)
 )
 print(colored(outStr, "light_green", attrs=["bold"]))
 
@@ -163,16 +202,16 @@ endtime = time.time()
 print(" -->   End time: ", endtime)
 
 deltatimesec = endtime - starttime
-pRate = p_count / deltatimesec
+pRate = data_size / deltatimesec
 
 outStr = (
-    "\nCRDP Test Completed - REVEAL. %s ciphertrext strings processed. Process time: %5.2f sec.  Rate: %5.2f tps.\n"
-    % (p_count, deltatimesec, pRate)
+    "\nCRDP Test Completed - REVEAL. %s ciphertrext bytes processed. Process time: %5.2f sec.  Rate: %5.2f Bps.\n"
+    % (data_size, deltatimesec, pRate)
 )
 print(colored(outStr, "light_green", attrs=["bold"]))
 
 outstr = "Plaintext (PT), CipherText (CT), and RevealText (RT) are as follows:"
 print(outstr)
 
-outStr = " PT: %s\n CT: %s\n RT: %s" % (p_data, c_data, r_data)
+outStr = " PT: %s\n CT: %s\n RT: %s" % (p_data[0:63], c_data[0:63], r_data[0:63])
 print(colored(outStr, "light_grey"))
