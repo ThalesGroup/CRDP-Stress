@@ -72,7 +72,7 @@ tmpStr = (
 print(tmpStr)
 
 # Get a string of 64 random characters and treat is as cleartext (plaintext)
-p_data = getRNDStr(48)
+p_data = getRNDStr(64)
 
 # Reserve some variables for later use
 p_data_array = []  # reserve for later use - cleartext (plaintext)
