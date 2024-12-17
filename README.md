@@ -6,7 +6,7 @@ Command line parameters allow the user to specify the number of times to repeat 
 as a bulk submission (which alwasy performs faster).
 
 Usage:
-**py CRDP-Stress.py [-h] -e HOSTNAMECRDP -p PROTECTIONPOLICY -b BATCHSIZE -u USERNAME [-bulk]** where:
+**py CRDP-Stress.py [-h] -e HOSTNAMECRDP -p PROTECTIONPOLICY -b BATCHSIZE -u USERNAME [-bulk] [-f FILENAME]** where:
 
 HOSTNAME         - The host name (or IP address) and port (optional) where CRDP is hosted.  E.g., cm-netptune.test256.io:8090
 
@@ -18,4 +18,7 @@ BATCHSIZE        - How many times the protection / reveal action should be be pe
 USERNAME         - The name of the user that will be used during the REVEAL test
 
 [-bulk]          - just a FLAG that indicates whether the test should be formed as a bulk submission
+
+FILENAME         - If you want to supply an actual file for encryption and descryption, you can add it here (text or binary).  
+                   If a file is supplied, then the BULK flag is automatically set and the BATCHSIZE is ignored.
 

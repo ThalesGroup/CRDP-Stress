@@ -116,7 +116,6 @@ data_size = len(p_data)*p_count
 starttime = time.time()
 
 print(colored("*** CRDP PROTECTION Test Started ***", "white", attrs=["bold"]))
-print(" --> Start time: ", starttime)
 
 # Process as bulk if specified as such or if file is specified
 if bulkFlag == False:
@@ -131,40 +130,52 @@ else:
     if len(inFile) > 0:
         with open(inFile, 'rb') as f:
             # read in file content but only keep ascii characters
-            f_content = f.read()            
-            f_ascii = f_content.decode('ascii', 'ignore')
-            data_size = len(f_ascii)
+            f_content = f.read()       
+            f_encode = base64.b64encode(f_content)
+            f_encoded = str(f_encode)[1:] # strips leading 'b'
+            data_size = len(f_content)
 
-            # once you have ascii characters, add them to the
+            # once you have encoded the characters, add them to the
             # plaintext array
-            p_data_array.clear()
-            p_data_array.append(f_ascii)
-
+            p_data_array.append(f_encoded)
     else:
         for i in range(p_count):
             p_data_array.append(p_data)
 
-    p_data = p_data_array[0]
     print(" -->  CRDP Bulk PROTECT processing...")
     # time - re-retrieve start time
     starttime = time.time()
     c_data_array, c_version = protectBulkData(hostCRDP, p_data_array, protectionPolicy)
+    
+    # retreive first recorded in plaintext data
+    p_data = p_data_array[0]
+    
+    # retreive first recorded in returned data
     c_data = c_data_array[0][
         CRDP_PROTECTED_DATA_NAME
-    ]  # retreive first recorded in returned data
+    ]
 
 
 # time - get end time
 endtime = time.time()
-print(" -->   End time: ", endtime)
-
 deltatimesec = endtime - starttime
-pRate = data_size / deltatimesec
 
-outStr = (
-    "\nCRDP Test Completed - PROTECT. %s plaintext bytes processed. Process time: %5.2f sec.  Rate: %5.2f Bps.\n"
-    % (data_size, deltatimesec, pRate)
-)
+if bulkFlag == True:
+    pRate = (data_size / deltatimesec)/1000000  # MB/s
+
+    outStr = (
+        "\nCRDP Test Completed - PROTECT. %5.2f plaintext MBs processed. Process time: %5.2f sec.  Rate: %5.2f MB/s.\n"
+        % (data_size/1000000, deltatimesec, pRate)
+    )
+else:
+    pRate = (data_size / deltatimesec)  # slower rate for non-bulk
+
+    outStr = (
+        "\nCRDP Test Completed - PROTECT. %s plaintext bytes processed. Process time: %5.2f sec.  Rate: %5.2f B/s.\n"
+        % (data_size, deltatimesec, pRate)
+    )
+
+
 print(colored(outStr, "light_green", attrs=["bold"]))
 
 
@@ -175,7 +186,6 @@ print(colored(outStr, "light_green", attrs=["bold"]))
 starttime = time.time()
 
 print(colored("*** CRDP REVEAL Test Started ***", "white", attrs=["bold"]))
-print(" --> Start time: ", starttime)
 
 if bulkFlag == False:
     # time - re-retrieve start time
@@ -196,18 +206,32 @@ else:
     )
     r_data = r_data_array[0][CRDP_DATA_NAME]  # retreive first recorded in returned data
 
+    # If a file was supplied, decode the returned data (base64) and change p_data to the actual file contents
+    if len(inFile) > 0:
+        tmpData = r_data_array[0][CRDP_DATA_NAME]
+        r_data = base64.b64decode(tmpData)
+        p_data = f_content
+
 
 # time - get end time
 endtime = time.time()
-print(" -->   End time: ", endtime)
-
 deltatimesec = endtime - starttime
-pRate = data_size / deltatimesec
 
-outStr = (
-    "\nCRDP Test Completed - REVEAL. %s ciphertrext bytes processed. Process time: %5.2f sec.  Rate: %5.2f Bps.\n"
-    % (data_size, deltatimesec, pRate)
-)
+if bulkFlag == True:
+    pRate = (data_size / deltatimesec)/1000000  # MB/s
+
+    outStr = (
+        "\nCRDP Test Completed - REVEAL. %5.2f ciphertrext MBs processed. Process time: %5.2f sec.  Rate: %5.2f MB/s.\n"
+        % (data_size/1000000, deltatimesec, pRate)
+    )
+else:
+    pRate = (data_size / deltatimesec)  # slower rate for non-bulk
+
+    outStr = (
+        "\nCRDP Test Completed - REVEAL. %s ciphertrext bytes processed. Process time: %5.2f sec.  Rate: %5.2f B/s.\n"
+        % (data_size, deltatimesec, pRate)
+    )
+
 print(colored(outStr, "light_green", attrs=["bold"]))
 
 outstr = "Plaintext (PT), CipherText (CT), and RevealText (RT) are as follows:"
