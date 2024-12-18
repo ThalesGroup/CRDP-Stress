@@ -52,8 +52,7 @@ def protectData(t_hostCRDP, t_data, t_protectionPolicy):
             t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
         )
     except requests.exceptions.RequestException as e:
-        print(e)
-        kPrintError("protectData-exception", e)
+        print("protectData-exception:\n", e)
         exit()
 
     if r.status_code != STATUS_CODE_OK:
@@ -88,7 +87,7 @@ def protectBulkData(t_hostCRDP, t_dataArray, t_protectionPolicy):
             t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
         )
     except requests.exceptions.RequestException as e:
-        kPrintError("protectBulkData-exception", e)
+        print("protectBulkData-exception:\n", e)
         exit()
 
     if r.status_code != STATUS_CODE_OK:
@@ -125,7 +124,7 @@ def revealData(t_hostCRDP, t_data, t_protectionPolicy, t_externalVersion, t_user
             t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
         )
     except requests.exceptions.RequestException as e:
-        kPrintError("revealData-exception", e)
+        print("revealData-exception:\n", e)
         exit()
 
     if r.status_code != STATUS_CODE_OK:
@@ -162,7 +161,7 @@ def revealBulkData(
             t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
         )
     except requests.exceptions.RequestException as e:
-        kPrintError("revealBulkData-exception", e)
+        print("revealBulkData-exception:\n", e)
         exit()
 
     if r.status_code != STATUS_CODE_OK:
