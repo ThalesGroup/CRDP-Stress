@@ -176,7 +176,7 @@ else:
     )
 
 
-print(colored(outStr, "light_green", attrs=["bold"]))
+print(colored(outStr, "green", attrs=["bold"]))
 
 
 #####################################################################
@@ -232,10 +232,10 @@ else:
         % (data_size, deltatimesec, pRate)
     )
 
-print(colored(outStr, "light_green", attrs=["bold"]))
+print(colored(outStr, "green", attrs=["bold"]))
 
 outstr = "Plaintext (PT), CipherText (CT), and RevealText (RT) are as follows:"
 print(outstr)
 
 outStr = " PT: %s\n CT: %s\n RT: %s" % (p_data[0:63], c_data[0:63], r_data[0:63])
-print(colored(outStr, "light_grey"))
+print(colored(outStr, "grey"))

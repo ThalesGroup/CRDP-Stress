@@ -13,6 +13,7 @@ import json
 
 # ---------------- CONSTANTS -----------------------------------------------------
 STATUS_CODE_OK = 200
+NET_TIMEOUT = 300
 
 CRDP_PROTECT = "/v1/protect"
 CRDP_REVEAL = "/v1/reveal"
@@ -46,9 +47,12 @@ def protectData(t_hostCRDP, t_data, t_protectionPolicy):
     }
 
     # Now that everything is populated, assemble and post command
-    r = requests.post(
-        t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False
-    )
+    try:
+        r = requests.post(
+            t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
+        )
+    except r.exceptions.RequestException as e:
+        print(e)
 
     if r.status_code != STATUS_CODE_OK:
         kPrintError("protectData", r)
@@ -77,9 +81,12 @@ def protectBulkData(t_hostCRDP, t_dataArray, t_protectionPolicy):
     }
 
     # Now that everything is populated, assemble and post command
-    r = requests.post(
-        t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False
-    )
+    try:
+        r = requests.post(
+            t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
+        )
+    except r.exceptions.RequestException as e:
+        print(e)
 
     if r.status_code != STATUS_CODE_OK:
         kPrintError("protectBulkData", r)
@@ -110,9 +117,12 @@ def revealData(t_hostCRDP, t_data, t_protectionPolicy, t_externalVersion, t_user
     }
 
     # Now that everything is populated, assemble and post command
-    r = requests.post(
-        t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False
-    )
+    try:
+        r = requests.post(
+            t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
+        )
+    except r.exceptions.RequestException as e:
+        print(e)
 
     if r.status_code != STATUS_CODE_OK:
         kPrintError("revealData", r)
@@ -143,9 +153,12 @@ def revealBulkData(
     }
 
     # Now that everything is populated, assemble and post command
-    r = requests.post(
-        t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False
-    )
+    try:
+        r = requests.post(
+            t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
+        )
+    except r.exceptions.RequestException as e:
+        print(e)
 
     if r.status_code != STATUS_CODE_OK:
         kPrintError("revealBulkData", r)
