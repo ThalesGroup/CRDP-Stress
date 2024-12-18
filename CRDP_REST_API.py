@@ -51,7 +51,7 @@ def protectData(t_hostCRDP, t_data, t_protectionPolicy):
         r = requests.post(
             t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
         )
-    except r.exceptions.RequestException as e:
+    except requests.exceptions.RequestException as e:
         print(e)
 
     if r.status_code != STATUS_CODE_OK:
@@ -85,7 +85,7 @@ def protectBulkData(t_hostCRDP, t_dataArray, t_protectionPolicy):
         r = requests.post(
             t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
         )
-    except r.exceptions.RequestException as e:
+    except requests.exceptions.RequestException as e:
         print(e)
 
     if r.status_code != STATUS_CODE_OK:
@@ -121,7 +121,7 @@ def revealData(t_hostCRDP, t_data, t_protectionPolicy, t_externalVersion, t_user
         r = requests.post(
             t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
         )
-    except r.exceptions.RequestException as e:
+    except requests.exceptions.RequestException as e:
         print(e)
 
     if r.status_code != STATUS_CODE_OK:
@@ -157,7 +157,7 @@ def revealBulkData(
         r = requests.post(
             t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
         )
-    except r.exceptions.RequestException as e:
+    except requests.exceptions.RequestException as e:
         print(e)
 
     if r.status_code != STATUS_CODE_OK:
