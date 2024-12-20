@@ -234,8 +234,8 @@ else:
 
 print(colored(outStr, "green", attrs=["bold"]))
 
-outstr = "Plaintext (PT), CipherText (CT), and RevealText (RT) are as follows:"
-print(outstr)
+outStr = "Plaintext (PT), CipherText (CT), and RevealText (RT) are as follows:"
+print(outStr)
 
-outStr = " PT: %s\n CT: %s\n RT: %s" % (p_data[0:63], c_data[0:63], r_data[0:63])
-print(colored(outStr, "grey"))
+outStr = " PT: %s\n CT: %s\n RT: %s\n" % (p_data[0:63], c_data[0:63], r_data[0:63])
+print(colored(outStr, "grey", attrs=["bold"]))
