@@ -43,7 +43,7 @@ parser.add_argument(
     "-p", nargs=1, action="store", required=True, dest="protectionPolicy"
 )
 parser.add_argument(
-    "-b", nargs=1, action="store", required=True, dest="batchSize", type=int
+    "-b", nargs=1, action="store", required=False, dest="batchSize", type=int
 )
 parser.add_argument("-u", nargs=1, action="store", required=True, dest="username")
 parser.add_argument("-bulk", action=argparse.BooleanOptionalAction)
@@ -54,12 +54,14 @@ parser.add_argument(
 args = parser.parse_args()
 
 
-tmpStr = "\nCDRP Stress starting... LET THE STRESS BEGIN!"
-print(colored(tmpStr, "white", attrs=["underline"]))
 
 # Echo Input Parameters
 hostCRDP = args.hostnameCRDP[0]
-batchSize = args.batchSize[0]
+
+batchSize = 0
+if args.batchSize:
+    batchSize = args.batchSize[0]
+
 protectionPolicy = args.protectionPolicy[0]
 bulkFlag = False
 if args.bulk:
@@ -74,6 +76,14 @@ if args.inFile:
 
     if os.path.isfile(inFile):
         bulkFlag = True
+
+if (batchSize == 0) and (inFile == ""):
+    tmpStr = "\n*** CRDP ERROR:  Either Batchsize or Filename must be supplied.  Please supply either and try again. ***"
+    print(colored(tmpStr, "yellow", attrs=["bold"]))
+    exit()
+
+tmpStr = "\nCDRP Stress starting... LET THE STRESS BEGIN!"
+print(colored(tmpStr, "white", attrs=["underline"]))
 
 #####################################################################
 # Echo back input information for validation
