@@ -76,6 +76,7 @@ if args.inFile:
 
     if os.path.isfile(inFile):
         bulkFlag = True
+        fileSize = os.path.getsize(inFile)
 
 if (batchSize == 0) and (inFile == ""):
     tmpStr = "\n*** CRDP ERROR:  Either Batchsize or Filename must be supplied.  Please supply either and try again. ***"
@@ -91,10 +92,12 @@ print(colored(tmpStr, "white", attrs=["underline"]))
 print(" Input Parameters:")
 
 # include filename if it is specified
+
 if len(inFile) > 0:
+    
     tmpStr = (
-        "  CRDPHost: %s\n  ProtectionPolicy: %s\n  BulkProtection: %s\n  Input File: %s\n"
-        % (hostCRDP, protectionPolicy, bulkFlag, inFile)
+        "  CRDPHost: %s\n  ProtectionPolicy: %s\n  BulkProtection: %s\n  Input File: %s\n  File Size: %5.2f MB\n"
+        % (hostCRDP, protectionPolicy, bulkFlag, inFile, fileSize/1000000)
     )
 else:
     tmpStr = (
@@ -116,8 +119,12 @@ r_data = []  # reserve for later use - revealedtext
 r_data_array = []  # reserve for later use - revealtext
 
 # how many times do we want to encrypt it?
-p_count = batchSize
-data_size = len(p_data)*p_count
+if batchSize > 0:
+    p_count = batchSize
+    data_size = len(p_data)*p_count
+
+if fileSize > 0:
+    data_size = fileSize
 
 #####################################################################
 # Let's encrypt the data as fast as we can in two ways:
@@ -143,7 +150,7 @@ else:
             f_content = f.read()       
             f_encode = base64.b64encode(f_content)
             f_encoded = str(f_encode)[1:] # strips leading 'b'
-            data_size = len(f_content)
+            data_size = fileSize
 
             # once you have encoded the characters, add them to the
             # plaintext array
@@ -162,7 +169,7 @@ else:
     
     # retreive first recorded in returned data
     c_data = c_data_array[0][
-        CRDP_PROTECTED_DATA_NAME
+        CRDP_PROTECTED_DATA_NAME 
     ]
 
 
@@ -170,12 +177,13 @@ else:
 endtime = time.time()
 deltatimesec = endtime - starttime
 
+
 if bulkFlag == True:
-    pRate = (data_size / deltatimesec)/1000000  # MB/s
+    pRate = (data_size / deltatimesec)/(1000000)  # MB/s
 
     outStr = (
         "\nCRDP Test Completed - PROTECT. %5.2f plaintext MBs processed. Process time: %5.2f sec.  Rate: %5.2f MB/s.\n"
-        % (data_size/1000000, deltatimesec, pRate)
+        % (data_size/(1000000), deltatimesec, pRate)
     )
 else:
     pRate = (data_size / deltatimesec)  # slower rate for non-bulk
@@ -228,11 +236,11 @@ endtime = time.time()
 deltatimesec = endtime - starttime
 
 if bulkFlag == True:
-    pRate = (data_size / deltatimesec)/1000000  # MB/s
+    pRate = (data_size / deltatimesec)/(1000000)  # MB/s
 
     outStr = (
         "\nCRDP Test Completed - REVEAL. %5.2f ciphertrext MBs processed. Process time: %5.2f sec.  Rate: %5.2f MB/s.\n"
-        % (data_size/1000000, deltatimesec, pRate)
+        % (data_size/(1000000), deltatimesec, pRate)
     )
 else:
     pRate = (data_size / deltatimesec)  # slower rate for non-bulk
