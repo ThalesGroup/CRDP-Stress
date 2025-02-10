@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    run: crdp
+  name: crdp-deployment
+spec:
+  template:
+     metadata:
+        name: crdp
+        labels:
+          run: crdp
+     spec:
+      containers:
+        - image: thalesciphertrust/ciphertrust-restful-data-protection:latest
+          imagePullPolicy: IfNotPresent
+          name: crdp-image
+          env:
+            - name: KEY_MANAGER_HOST
+              value: "cm-kirk.test256.io"
+            - name: SERVER_MODE
+              value: "no-tls"
+            - name: REGISTRATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: crdp-secret-name
+                  key: regtoken
+          ports:
+            - containerPort: 8090
+  replicas: 6
+  selector:
+      matchLabels:
+        run: crdp
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    run: crdp
+  name: crdp-service
+spec:
+  selector:
+    run: crdp
+  type: NodePort
+  ports:
+    - port: 8090
+      nodePort: 32085
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: crdp-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 4096M
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: kube.test256.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: crdp-service
+            port:
+              number: 8090
+
+  - host: sphere.test256.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: crdp-service
+            port:
+              number: 8090

@@ -22,3 +22,23 @@ USERNAME         - The name of the user that will be used during the REVEAL test
 FILENAME         - If you want to supply an actual file for encryption and descryption, you can add it here (text or binary).  
                    If a file is supplied, then the BULK flag is automatically set and the BATCHSIZE is ignored.
 
+**Additional File Information:**
+
+For fun, I have included a file called *attack.sh*.  This is a linux bash file that will call CRDP-Stress 10 times so that your 
+CRDP environment is required to process multiple requests concurrently.  This is useful if you have established a Kubernetes
+Cluster with multiple pods of CRDP running on multiple hosts.
+
+Furthermore, I have also included a file called *crdp-app-svc-ing.yml* which will establish a Kubernetes cluster of CRDP pods.  To use this file,
+you will need to use MicroK8s or some Kubernetes controller and have defined a *crdp-secret-name* prior to deploying the yml file.
+
+To define a secret, use the command:
+**microk8s kubectl create secret generic crdp-secret-name --from-literal=regtoken=myCRDPAppregistrationtokenfromCipherTrust**
+
+Then to deploy the environment, use the command
+**mkcrok8s kubectl apply -f crdp-app-svc-ing.yml**
+
+
+
+
+
+
