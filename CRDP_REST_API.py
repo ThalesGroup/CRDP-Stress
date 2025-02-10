@@ -13,7 +13,7 @@ import json
 
 # ---------------- CONSTANTS -----------------------------------------------------
 STATUS_CODE_OK = 200
-NET_TIMEOUT = 300
+NET_TIMEOUT = 600
 
 CRDP_PROTECT = "/v1/protect"
 CRDP_REVEAL = "/v1/reveal"
