@@ -71,6 +71,7 @@ r_user = args.username[0]
 # Special processing if file is supplied.  Specifically, if it is provided
 # we need to a) ensure the file exists and b) we process it as BULK
 inFile = ""
+fileSize = 0
 if args.inFile:
     inFile = str(args.inFile[0].name)
 
