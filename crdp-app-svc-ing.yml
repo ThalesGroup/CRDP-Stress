@@ -1,3 +1,8 @@
+#
+# Combined Kubernetes file for deploying CRDP across a multi-node, multi-pod environment
+#
+# SECTION:  Pod Deployment
+#
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -33,6 +38,9 @@ spec:
         run: crdp
 
 ---
+#
+# SECTION:  Service Deployment
+#
 apiVersion: v1
 kind: Service
 metadata:
@@ -48,16 +56,19 @@ spec:
       nodePort: 32085
 
 ---
+#
+# SECTION:  Ingress Deployment
+#
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: crdp-ingress
   annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: 4096M
+    nginx.ingress.kubernetes.io/proxy-body-size: 4096M # reqd to accept large payloads
 spec:
   ingressClassName: nginx
   rules:
-  - host: kube.test256.io
+  - host: kube.test256.io # node 1.  Note that kube is also the control node as well as a worker node
     http:
       paths:
       - path: /
@@ -68,7 +79,7 @@ spec:
             port:
               number: 8090
 
-  - host: sphere.test256.io
+  - host: sphere.test256.io # node 2.  Worker node only.
     http:
       paths:
       - path: /
