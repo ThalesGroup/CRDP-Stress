@@ -240,14 +240,14 @@ if bulkFlag == True:
     pRate = (data_size / deltatimesec)/(1000000)  # MB/s
 
     outStr = (
-        "\nCRDP Test Completed - REVEAL. %5.2f ciphertrext MBs processed. Process time: %5.2f sec.  Rate: %5.2f MB/s.\n"
+        "\nCRDP Test Completed - REVEAL. %5.2f ciphertext MBs processed. Process time: %5.2f sec.  Rate: %5.2f MB/s.\n"
         % (data_size/(1000000), deltatimesec, pRate)
     )
 else:
     pRate = (data_size / deltatimesec)  # slower rate for non-bulk
 
     outStr = (
-        "\nCRDP Test Completed - REVEAL. %s ciphertrext bytes processed. Process time: %5.2f sec.  Rate: %5.2f B/s.\n"
+        "\nCRDP Test Completed - REVEAL. %s ciphertext bytes processed. Process time: %5.2f sec.  Rate: %5.2f B/s.\n"
         % (data_size, deltatimesec, pRate)
     )
 
