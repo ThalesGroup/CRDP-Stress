@@ -14,4 +14,4 @@ microk8s kubectl delete secret crdp-secret-name
 microk8s kubectl create secret generic crdp-secret-name --from-literal=regtoken=$REG_TOKEN_VALUE
 
 # Deploy Kubernetes Cluster
-mkcrok8s kubectl apply -f crdp-app-svc-ing.yml
+microk8s kubectl apply -f crdp-app-svc-ing.yml
