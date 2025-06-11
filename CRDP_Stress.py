@@ -21,21 +21,27 @@ from tqdm import tqdm
 from termcolor import colored
 import os
 import base64
-
+import string
+from enum import Enum
 
 #  --------- DEFINED Routines -----------------
-def getRNDStr(t_len):
+def getRNDStr(t_len, t_choices):
     # Simple routine that generates a randon plaintext payload
 
     strRandom = "".join(
         random.choices(
-            "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", k=t_len
+            t_choices, k=t_len
         )
     )
 
     return strRandom
-
 #
+
+# ---------- CONSTANTS -------------------------
+class charSet(Enum):
+    alphanumeric    = "ALPHANUMERIC"
+    digitsOnly      = "DIGITSONLY"
+    printableascii  = "PRINTABLEASCII"
 
 #####################################################################
 # Code for collecting and parsing input information from command line
@@ -54,9 +60,14 @@ parser.add_argument("-bulk", action=argparse.BooleanOptionalAction)
 parser.add_argument(
     "-f", nargs=1, action="store", required=False, dest="inFile", type=argparse.FileType('r'))
 
+# Character Set Choice
+parser.add_argument("-c", nargs=1, action="store", dest="charSetValue", required=False, 
+                    choices=[charSet.alphanumeric.value,
+                             charSet.digitsOnly.value,
+                             charSet.printableascii.value],
+                    default=[charSet.alphanumeric.value] )
+
 args = parser.parse_args()
-
-
 
 # Echo Input Parameters
 hostCRDP = args.hostnameCRDP[0]
@@ -87,6 +98,9 @@ if (batchSize == 0) and (inFile == ""):
     print(colored(tmpStr, "yellow", attrs=["bold"]))
     exit()
 
+# Collect the character set
+charSetValue = str(" ".join(args.charSetValue))
+
 tmpStr = "\nCDRP Stress starting... LET THE STRESS BEGIN!"
 print(colored(tmpStr, "white", attrs=["underline"]))
 
@@ -105,14 +119,35 @@ if len(inFile) > 0:
     )
 else:
     tmpStr = (
-        "  CRDPHost: %s\n  BatchSize: %s\n  ProtectionPolicy: %s\n  BulkProtection: %s\n"
-        % (hostCRDP, batchSize, protectionPolicy, bulkFlag)
+        "  CRDPHost: %s\n  BatchSize: %s\n  ProtectionPolicy: %s\n  BulkProtection: %s\n  Character Set: %s\n"
+        % (hostCRDP, batchSize, protectionPolicy, bulkFlag, charSetValue)
     )
 
 print(tmpStr)
 
 # Get a string of 64 random characters and treat is as cleartext (plaintext)
-p_data = getRNDStr(64)
+
+match(charSetValue):
+    case charSet.alphanumeric.value:
+        charValues = string.ascii_letters + string.digits
+        p_data = getRNDStr(64, charValues)
+
+    case charSet.digitsOnly.value:
+        charValues = string.digits
+
+        # Create a string of digits that follows the format of a credit card
+        t_dataList = []
+        t_dataList.append(getRNDStr(4, charValues))
+        t_dataList.append(getRNDStr(4, charValues))
+        t_dataList.append(getRNDStr(4, charValues))
+        t_dataList.append(getRNDStr(4, charValues))
+        
+        p_data = '-'.join(t_dataList)
+
+    case charSet.printableascii.value:
+        charValues = string.printable
+        p_data = getRNDStr(64, charValues)
+
 
 # Reserve some variables for later use
 p_data_array = []  # reserve for later use - cleartext (plaintext)
