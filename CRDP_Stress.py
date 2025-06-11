@@ -27,11 +27,14 @@ import base64
 def getRNDStr(t_len):
     # Simple routine that generates a randon plaintext payload
 
-    return "".join(
+    strRandom = "".join(
         random.choices(
             "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", k=t_len
         )
     )
+
+    return strRandom
+
 #
 
 #####################################################################
