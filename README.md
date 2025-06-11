@@ -28,13 +28,14 @@ For fun, I have included a file called *attack.sh*.  This is a linux bash file t
 CRDP environment is required to process multiple requests concurrently.  This is useful if you have established a Kubernetes
 Cluster with multiple pods of CRDP running on multiple hosts.
 
-Furthermore, I have also included a file called *crdp-app-svc-ing.yml* which will establish a Kubernetes cluster of CRDP pods.  To use this file,
-you will need to use MicroK8s or some Kubernetes controller and have defined a *crdp-secret-name* prior to deploying the yml file.
+Furthermore, I have also included a file called *crdp-app-svc-ing.yml* which will establish a Kubernetes cluster of CRDP pods.  To use this file, you will need to use MicroK8s or some Kubernetes controller and have defined a *crdp-secret-name* prior to deploying the yml file.
 
-To define a secret, use the command:
+The **makeSecretandDeploy.sh** script will do this for you (but you must still edit it and update the RegToken).  It executes the following steps:
+
+1) Define a secret, by using the command:
 **microk8s kubectl create secret generic crdp-secret-name --from-literal=regtoken=myCRDPAppregistrationtokenfromCipherTrust**
 
-Then to deploy the environment, use the command
+2) Deploy the environment by the following command:
 **mkcrok8s kubectl apply -f crdp-app-svc-ing.yml**
 
 
