@@ -18,11 +18,10 @@ Usage:
                    
 -u USERNAME         - The name of the user that will be used during the REVEAL test
 
--charSet   (optional)
-            NEITHER - Read and Copy Keys and Secrets From Source to Destination
-            SOURCE - Only Read and List Keys and Secrets on Source Server.  No reads from or writes to Destination Server
-            DESTINATION - Only Read and List Objects on Destination Server.  No reads from Source Server
-            BOTH - Only Read and List Keys, Secrets, or Objects on Source and Destination Server.  No writes are made to Destination Server
+-c (optional)
+            ALPHANUMERIC - for plaintext, generate alphanumeric data
+            DIGITSONLY - for plaintext, generate characters only using numeric digits
+            PRINTABLEASCII - for plaintext, generate plaintenxt consisting of any printable character (including $pecial characters)
 
 [-bulk]          - just a FLAG that indicates whether the test should be formed as a bulk submission
 
