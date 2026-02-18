@@ -16,6 +16,7 @@
 import argparse
 import time
 from CRDP_REST_API import *
+from parallel_execution import *
 import random
 from tqdm import tqdm
 from termcolor import colored
@@ -56,6 +57,9 @@ parser.add_argument(
 )
 parser.add_argument("-u", nargs=1, action="store", required=True, dest="username")
 parser.add_argument("-bulk", action=argparse.BooleanOptionalAction)
+parser.add_argument(
+    "-t", nargs=1, action="store", required=False, dest="numTasks", type=int, default=[1]
+)
 
 parser.add_argument(
     "-f", nargs=1, action="store", required=False, dest="inFile", type=argparse.FileType('r'))
@@ -81,6 +85,13 @@ bulkFlag = False
 if args.bulk:
     bulkFlag = True
 r_user = args.username[0]
+
+# Parse number of tasks (parallel workers)
+numTasks = args.numTasks[0] if args.numTasks else 1
+if numTasks < 1:
+    tmpStr = "\n*** CRDP ERROR: Number of tasks must be >= 1. ***"
+    print(colored(tmpStr, "yellow", attrs=["bold"]))
+    exit()
 
 # Special processing if file is supplied.  Specifically, if it is provided
 # we need to a) ensure the file exists and b) we process it as BULK
@@ -112,15 +123,15 @@ print(" Input Parameters:")
 # include filename if it is specified
 
 if len(inFile) > 0:
-    
+
     tmpStr = (
-        "  CRDPHost: %s\n  ProtectionPolicy: %s\n  BulkProtection: %s\n  Input File: %s\n  File Size: %5.2f MB\n"
-        % (hostCRDP, protectionPolicy, bulkFlag, inFile, fileSize/1000000)
+        "  CRDPHost: %s\n  ProtectionPolicy: %s\n  BulkProtection: %s\n  Input File: %s\n  File Size: %5.2f MB\n  Parallel Tasks: %s\n"
+        % (hostCRDP, protectionPolicy, bulkFlag, inFile, fileSize/1000000, numTasks)
     )
 else:
     tmpStr = (
-        "  CRDPHost: %s\n  BatchSize: %s\n  ProtectionPolicy: %s\n  BulkProtection: %s\n  Character Set: %s\n"
-        % (hostCRDP, batchSize, protectionPolicy, bulkFlag, charSetValue)
+        "  CRDPHost: %s\n  BatchSize: %s\n  ProtectionPolicy: %s\n  BulkProtection: %s\n  Character Set: %s\n  Parallel Tasks: %s\n"
+        % (hostCRDP, batchSize, protectionPolicy, bulkFlag, charSetValue, numTasks)
     )
 
 print(tmpStr)
@@ -163,7 +174,14 @@ if batchSize > 0:
     data_size = len(p_data)*p_count
 
 if fileSize > 0:
-    data_size = fileSize
+    # For file input with parallel tasks, send the file numTasks times (stress testing)
+    # For sequential mode, send the file once
+    if numTasks > 1:
+        p_count = numTasks
+        data_size = fileSize * numTasks  # Total data sent to server
+    else:
+        p_count = 1
+        data_size = fileSize
 
 #####################################################################
 # Let's encrypt the data as fast as we can in two ways:
@@ -173,67 +191,112 @@ starttime = time.time()
 
 print(colored("*** CRDP PROTECTION Test Started ***", "white", attrs=["bold"]))
 
-# Process as bulk if specified as such or if file is specified
-if bulkFlag == False:
-    # time - re-retrieve start time
-    starttime = time.time()
+# Check if parallel execution is requested
+if numTasks > 1:
+    # Parallel execution mode
+    # Build data array if needed for bulk mode
+    if bulkFlag:
+        if len(inFile) > 0:
+            with open(inFile, 'rb') as f:
+                # read in file content but only keep ascii characters
+                f_content = f.read()
+                f_encode = base64.b64encode(f_content)
+                f_encoded = str(f_encode)[1:] # strips leading 'b'
 
-    for i in tqdm(range(p_count), desc="Discrete PROTECT Progress"):
-        c_data, c_version = protectData(hostCRDP, p_data, protectionPolicy)
+                # For stress testing: replicate file content numTasks times
+                # Each worker will send the complete file independently
+                for i in range(numTasks):
+                    p_data_array.append(f_encoded)
+        else:
+            for i in range(p_count):
+                p_data_array.append(p_data)
+
+    # Distribute workload across tasks
+    workload = distribute_workload(p_count, numTasks)
+
+    # Execute parallel PROTECT
+    agg_metrics, results, c_version = execute_protect_parallel(
+        workload, bulkFlag, hostCRDP, p_data, p_data_array, protectionPolicy
+    )
+
+    # Collect all results from all workers
+    if results:
+        if bulkFlag:
+            # Combine encrypted results from all workers into one array
+            c_data_array = []
+            for task_id, metrics, worker_c_data_array, version in sorted(results, key=lambda x: x[0]):
+                c_data_array.extend(worker_c_data_array)
+
+            # Extract first item for validation display
+            p_data = p_data_array[0]
+            c_data = c_data_array[0][CRDP_PROTECTED_DATA_NAME]
+        else:
+            # For discrete mode, just use first result
+            _, _, c_data, _ = results[0]
+
+    # Display parallel metrics
+    display_parallel_metrics(agg_metrics, data_size, "PROTECT", bulkFlag)
 
 else:
-    # build plaintext array for processing unless file is specified
-    if len(inFile) > 0:
-        with open(inFile, 'rb') as f:
-            # read in file content but only keep ascii characters
-            f_content = f.read()       
-            f_encode = base64.b64encode(f_content)
-            f_encoded = str(f_encode)[1:] # strips leading 'b'
-            data_size = fileSize
+    # Sequential execution mode (original code)
+    # Process as bulk if specified as such or if file is specified
+    if bulkFlag == False:
+        # time - re-retrieve start time
+        starttime = time.time()
 
-            # once you have encoded the characters, add them to the
-            # plaintext array
-            p_data_array.append(f_encoded)
+        for i in tqdm(range(p_count), desc="Discrete PROTECT Progress"):
+            c_data, c_version = protectData(hostCRDP, p_data, protectionPolicy)
+
     else:
-        for i in range(p_count):
-            p_data_array.append(p_data)
+        # build plaintext array for processing unless file is specified
+        if len(inFile) > 0:
+            with open(inFile, 'rb') as f:
+                # read in file content but only keep ascii characters
+                f_content = f.read()
+                f_encode = base64.b64encode(f_content)
+                f_encoded = str(f_encode)[1:] # strips leading 'b'
+                data_size = fileSize
 
-    print(" -->  CRDP Bulk PROTECT processing...")
-    # time - re-retrieve start time
-    starttime = time.time()
-    c_data_array, c_version = protectBulkData(hostCRDP, p_data_array, protectionPolicy)
-    
-    # retreive first recorded in plaintext data
-    p_data = p_data_array[0]
-    
-    # retreive first recorded in returned data
-    c_data = c_data_array[0][
-        CRDP_PROTECTED_DATA_NAME 
-    ]
+                # once you have encoded the characters, add them to the
+                # plaintext array
+                p_data_array.append(f_encoded)
+        else:
+            for i in range(p_count):
+                p_data_array.append(p_data)
 
+        print(" -->  CRDP Bulk PROTECT processing...")
+        # time - re-retrieve start time
+        starttime = time.time()
+        c_data_array, c_version = protectBulkData(hostCRDP, p_data_array, protectionPolicy)
 
-# time - get end time
-endtime = time.time()
-deltatimesec = endtime - starttime
+        # retreive first recorded in plaintext data
+        p_data = p_data_array[0]
 
+        # retreive first recorded in returned data
+        c_data = c_data_array[0][
+            CRDP_PROTECTED_DATA_NAME
+        ]
 
-if bulkFlag == True:
-    pRate = (data_size / deltatimesec)/(1000000)  # MB/s
+    # time - get end time
+    endtime = time.time()
+    deltatimesec = endtime - starttime
 
-    outStr = (
-        "\nCRDP Test Completed - PROTECT. %5.2f plaintext MBs processed. Process time: %5.2f sec.  Rate: %5.2f MB/s.\n"
-        % (data_size/(1000000), deltatimesec, pRate)
-    )
-else:
-    pRate = (data_size / deltatimesec)  # slower rate for non-bulk
+    if bulkFlag == True:
+        pRate = (data_size / deltatimesec)/(1000000)  # MB/s
 
-    outStr = (
-        "\nCRDP Test Completed - PROTECT. %s plaintext bytes processed. Process time: %5.2f sec.  Rate: %5.2f B/s.\n"
-        % (data_size, deltatimesec, pRate)
-    )
+        outStr = (
+            "\nCRDP Test Completed - PROTECT. %5.2f plaintext MBs processed. Process time: %5.2f sec.  Rate: %5.2f MB/s.\n"
+            % (data_size/(1000000), deltatimesec, pRate)
+        )
+    else:
+        pRate = (data_size / deltatimesec)  # slower rate for non-bulk
 
+        outStr = (
+            "\nCRDP Test Completed - PROTECT. %s plaintext bytes processed. Process time: %5.2f sec.  Rate: %5.2f B/s.\n"
+            % (data_size, deltatimesec, pRate)
+        )
 
-print(colored(outStr, "green", attrs=["bold"]))
+    print(colored(outStr, "green", attrs=["bold"]))
 
 
 #####################################################################
@@ -244,52 +307,87 @@ starttime = time.time()
 
 print(colored("*** CRDP REVEAL Test Started ***", "white", attrs=["bold"]))
 
-if bulkFlag == False:
-    # time - re-retrieve start time
-    starttime = time.time()
+# Check if parallel execution is requested
+if numTasks > 1:
+    # Parallel execution mode
+    # Distribute workload across tasks
+    workload = distribute_workload(p_count, numTasks)
 
-    for i in tqdm(range(p_count), desc="Discrete REVEAL Progress"):
-        r_data = revealData(hostCRDP, c_data, protectionPolicy, c_version, r_user)
+    # Execute parallel REVEAL
+    agg_metrics, results = execute_reveal_parallel(
+        workload, bulkFlag, hostCRDP, c_data, c_data_array, protectionPolicy, c_version, r_user
+    )
+
+    # Collect all results from all workers
+    if results:
+        if bulkFlag:
+            # Combine revealed results from all workers into one array
+            r_data_array = []
+            for task_id, metrics, worker_r_data_array in sorted(results, key=lambda x: x[0]):
+                r_data_array.extend(worker_r_data_array)
+
+            # Extract first item for validation display
+            r_data = r_data_array[0][CRDP_DATA_NAME]
+
+            # If a file was supplied, decode the returned data (base64) and change p_data to the actual file contents
+            if len(inFile) > 0:
+                tmpData = r_data_array[0][CRDP_DATA_NAME]
+                r_data = base64.b64decode(tmpData)
+                p_data = f_content
+        else:
+            # For discrete mode, just use first result
+            _, _, r_data = results[0]
+
+    # Display parallel metrics
+    display_parallel_metrics(agg_metrics, data_size, "REVEAL", bulkFlag)
 
 else:
-    # no need to rebuild c_data_array since it was populated earlier
+    # Sequential execution mode (original code)
+    if bulkFlag == False:
+        # time - re-retrieve start time
+        starttime = time.time()
 
-    print(" -->  CRDP Bulk REVEAL processing...")
+        for i in tqdm(range(p_count), desc="Discrete REVEAL Progress"):
+            r_data = revealData(hostCRDP, c_data, protectionPolicy, c_version, r_user)
 
-    # time - re-retrieve start time
-    starttime = time.time()
-    r_data_array = revealBulkData(
-        hostCRDP, c_data_array, protectionPolicy, c_version, r_user
-    )
-    r_data = r_data_array[0][CRDP_DATA_NAME]  # retreive first recorded in returned data
+    else:
+        # no need to rebuild c_data_array since it was populated earlier
 
-    # If a file was supplied, decode the returned data (base64) and change p_data to the actual file contents
-    if len(inFile) > 0:
-        tmpData = r_data_array[0][CRDP_DATA_NAME]
-        r_data = base64.b64decode(tmpData)
-        p_data = f_content
+        print(" -->  CRDP Bulk REVEAL processing...")
 
+        # time - re-retrieve start time
+        starttime = time.time()
+        r_data_array = revealBulkData(
+            hostCRDP, c_data_array, protectionPolicy, c_version, r_user
+        )
+        r_data = r_data_array[0][CRDP_DATA_NAME]  # retreive first recorded in returned data
 
-# time - get end time
-endtime = time.time()
-deltatimesec = endtime - starttime
+        # If a file was supplied, decode the returned data (base64) and change p_data to the actual file contents
+        if len(inFile) > 0:
+            tmpData = r_data_array[0][CRDP_DATA_NAME]
+            r_data = base64.b64decode(tmpData)
+            p_data = f_content
 
-if bulkFlag == True:
-    pRate = (data_size / deltatimesec)/(1000000)  # MB/s
+    # time - get end time
+    endtime = time.time()
+    deltatimesec = endtime - starttime
 
-    outStr = (
-        "\nCRDP Test Completed - REVEAL. %5.2f ciphertext MBs processed. Process time: %5.2f sec.  Rate: %5.2f MB/s.\n"
-        % (data_size/(1000000), deltatimesec, pRate)
-    )
-else:
-    pRate = (data_size / deltatimesec)  # slower rate for non-bulk
+    if bulkFlag == True:
+        pRate = (data_size / deltatimesec)/(1000000)  # MB/s
 
-    outStr = (
-        "\nCRDP Test Completed - REVEAL. %s ciphertext bytes processed. Process time: %5.2f sec.  Rate: %5.2f B/s.\n"
-        % (data_size, deltatimesec, pRate)
-    )
+        outStr = (
+            "\nCRDP Test Completed - REVEAL. %5.2f ciphertext MBs processed. Process time: %5.2f sec.  Rate: %5.2f MB/s.\n"
+            % (data_size/(1000000), deltatimesec, pRate)
+        )
+    else:
+        pRate = (data_size / deltatimesec)  # slower rate for non-bulk
 
-print(colored(outStr, "green", attrs=["bold"]))
+        outStr = (
+            "\nCRDP Test Completed - REVEAL. %s ciphertext bytes processed. Process time: %5.2f sec.  Rate: %5.2f B/s.\n"
+            % (data_size, deltatimesec, pRate)
+        )
+
+    print(colored(outStr, "green", attrs=["bold"]))
 
 outStr = "Plaintext (PT), CipherText (CT), and RevealText (RT) are as follows:"
 print(outStr)

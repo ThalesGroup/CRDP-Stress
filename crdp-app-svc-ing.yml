@@ -22,7 +22,7 @@ spec:
           name: crdp-image
           env:
             - name: KEY_MANAGER_HOST
-              value: "cm-kirk.test256.io"
+              value: "192.168.1.190"
             - name: SERVER_MODE
               value: "no-tls"
             - name: REGISTRATION_TOKEN
@@ -58,6 +58,10 @@ spec:
 ---
 #
 # SECTION:  Ingress Deployment
+# This will leverage the load balancer crdp.test256.io to route traffic to the appropriate node and pod.  
+# Note that the load balancer is configured to route traffic to both nodes, so either node can be used 
+# as the ingress point.  The ingress controller will then route traffic to the appropriate pod based 
+# on the rules defined in the ingress resource.
 #
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -68,18 +72,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-  - host: kube.test256.io # node 1.  Note that kube is also the control node as well as a worker node
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: crdp-service
-            port:
-              number: 8090
-
-  - host: sphere.test256.io # node 2.  Worker node only.
+  - host: crdp.test256.io
     http:
       paths:
       - path: /

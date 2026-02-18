@@ -2,13 +2,12 @@
 
 It works fairly simply.  It create random plaintext data and then submits that to CRDP to determine how long CRDP takes to protect (encrypt) or reveal (decrypt).
 
-Command line parameters allow the user to specify the number of times to repeat the encryption process as well as whether the protection process is record-by-record or 
-as a bulk submission (which alwasy performs faster).
+Command line parameters allow the user to specify the number of times to repeat the encryption process as well as whether the protection process is record-by-record or as a bulk submission (which alwasy performs faster).
 
 Usage:
-**py CRDP_Stress.py [-h] -e HOSTNAMECRDP -p PROTECTIONPOLICY -b BATCHSIZE -u USERNAME [-bulk] [-c {ALPHANUMERIC, DIGITSONLY, PRINTABLEASCII}] [-f FILENAME]** where:
+**py CRDP_Stress.py [-h] -e HOSTNAMECRDP -p PROTECTIONPOLICY -b BATCHSIZE -u USERNAME [-bulk] [-c {ALPHANUMERIC, DIGITSONLY, PRINTABLEASCII}] [-t TASKCOUNT] [-f FILENAME]** where:
 
--e HOSTNAME         - The host name (or IP address) and port (optional) where CRDP is hosted.  E.g., cm-netptune.test256.io:8090
+-e HOSTNAME         - The host name (or IP address) and port (optional) where CRDP is hosted.  E.g., crdp.test256.io:8090
 
 -p PROTECTIONPOLICY - The name of the Protection Policy that has been defined in CRDP. E.g., CRDP-DP-Policy1
 
@@ -23,19 +22,20 @@ Usage:
             DIGITSONLY - for plaintext, generate characters only using numeric digits
             PRINTABLEASCII - for plaintext, generate plaintenxt consisting of any printable character (including $pecial characters)
 
-[-bulk]          - just a FLAG that indicates whether the test should be formed as a bulk submission
+[-bulk]             - just a FLAG that indicates whether the test should be formed as a bulk submission
 
-FILENAME         - If you want to supply an actual file for encryption and descryption, you can add it here (text or binary).  
-                   If a file is supplied, then the BULK flag is automatically set and the BATCHSIZE is ignored.
+-t TASKCOUNT        - To stress CRDP when multiple pods are deployed, TASKCOUNT will take the BATCHSIZE and divide it
+                        by the TASKCOUNT and then issue a PROTECT/REVEAL task for each task in TASKCOUNT.  E.g., if
+                        your BATCHSIZE is 10,000 and your TASKCOUNT is 10, then 10 TASKS will be independantly started with a batch size of 1000 per TASK (either descretely or as bulk payloads)                        
+
+-f FILENAME         - If you want to supply an actual file for encryption, you can add it here (text or binary).
+                    - If a file is supplied, then the BULK flag is automatically set and the BATCHSIZE is ignored.
+                    - If filename is specified and TASKCOUNT is greater than 1, then the file is sent once for each task.
 
 
 **Additional File Information:**
 
-For fun, I have included a file called *attack.sh*.  This is a linux bash file that will call CRDP-Stress 10 times so that your 
-CRDP environment is required to process multiple requests concurrently.  This is useful if you have established a Kubernetes
-Cluster with multiple pods of CRDP running on multiple hosts.
-
-Furthermore, I have also included a file called *crdp-app-svc-ing.yml* which will establish a Kubernetes cluster of CRDP pods.  To use this file, you will need to use MicroK8s or some Kubernetes controller and have defined a *crdp-secret-name* prior to deploying the yml file.
+I have also included a file called *crdp-app-svc-ing.yml* which will establish a Kubernetes cluster of CRDP pods.  To use this file, you will need to use MicroK8s or some Kubernetes controller and have defined a *crdp-secret-name* prior to deploying the yml file.
 
 The **makeSecretandDeploy.sh** script will do this for you (but you must still edit it and update the RegToken).  It executes the following steps:
 
