@@ -520,9 +520,26 @@ def execute_reveal_parallel(workload, bulkFlag, hostCRDP, c_data, c_data_array, 
     return agg_metrics, results
 
 
-def display_parallel_metrics(agg_metrics, data_size, operation_name, bulkFlag):
+def display_worker_performance(agg_metrics, operation_name):
     """
-    Display enhanced metrics for parallel execution.
+    Display per-worker performance table for a single phase.
+
+    Args:
+        agg_metrics: AggregatedMetrics object
+        operation_name: "PROTECT" or "REVEAL"
+    """
+    if len(agg_metrics.worker_metrics) > 1:
+        print(f"\n  {operation_name} Worker Performance:")
+        for metrics in sorted(agg_metrics.worker_metrics, key=lambda m: m.worker_id):
+            avg_time = (metrics.duration() / metrics.items_processed * 1000) if metrics.items_processed > 0 else 0
+            print(f"    Worker {metrics.worker_id}: {metrics.items_processed} items in {metrics.duration():.2f}s "
+                  f"(avg: {avg_time:.1f}ms/item)")
+        print()
+
+
+def display_test_summary(agg_metrics, data_size, operation_name, bulkFlag):
+    """
+    Display test completion summary with load distribution for a single phase.
 
     Args:
         agg_metrics: AggregatedMetrics object
@@ -535,36 +552,28 @@ def display_parallel_metrics(agg_metrics, data_size, operation_name, bulkFlag):
     if bulkFlag:
         pRate = (data_size / overall_time) / 1000000  # MB/s
         outStr = (
-            f"\nCRDP Test Completed - {operation_name}. "
-            f"{data_size/1000000:.2f} plaintext MBs processed. "
+            f"CRDP Test Completed - {operation_name}. "
+            f"{data_size/1000000:.2f} MBs processed. "
             f"Process time: {overall_time:.2f} sec. "
-            f"Rate: {pRate:.2f} MB/s.\n"
+            f"Rate: {pRate:.2f} MB/s."
         )
     else:
         pRate = data_size / overall_time  # B/s
         outStr = (
-            f"\nCRDP Test Completed - {operation_name}. "
-            f"{data_size} plaintext bytes processed. "
+            f"CRDP Test Completed - {operation_name}. "
+            f"{data_size} bytes processed. "
             f"Process time: {overall_time:.2f} sec. "
-            f"Rate: {pRate:.2f} B/s.\n"
+            f"Rate: {pRate:.2f} B/s."
         )
 
     print(colored(outStr, "green", attrs=["bold"]))
 
-    # Display per-worker performance
+    # Display load distribution if multiple workers
     if len(agg_metrics.worker_metrics) > 1:
-        print("  Worker Performance:")
-        for metrics in sorted(agg_metrics.worker_metrics, key=lambda m: m.worker_id):
-            avg_time = (metrics.duration() / metrics.items_processed * 1000) if metrics.items_processed > 0 else 0
-            print(f"    Worker {metrics.worker_id}: {metrics.items_processed} items in {metrics.duration():.2f}s "
-                  f"(avg: {avg_time:.1f}ms/item)")
-
-        # Display load distribution
         min_dur = agg_metrics.min_worker_duration()
         max_dur = agg_metrics.max_worker_duration()
         avg_dur = agg_metrics.avg_worker_duration()
         skew = agg_metrics.load_skew_percent()
 
-        print(f"\n  Load Distribution: Min: {min_dur:.2f}s | Max: {max_dur:.2f}s | "
+        print(f"  Load Distribution: Min: {min_dur:.2f}s | Max: {max_dur:.2f}s | "
               f"Avg: {avg_dur:.2f}s | Skew: {skew:.1f}%")
-    print()  # Empty line for formatting

@@ -234,8 +234,9 @@ if numTasks > 1:
             # For discrete mode, just use first result
             _, _, c_data, _ = results[0]
 
-    # Display parallel metrics
-    display_parallel_metrics(agg_metrics, data_size, "PROTECT", bulkFlag)
+    # Display worker performance and save metrics for final summary
+    display_worker_performance(agg_metrics, "PROTECT")
+    protect_agg_metrics = agg_metrics
 
 else:
     # Sequential execution mode (original code)
@@ -277,26 +278,9 @@ else:
             CRDP_PROTECTED_DATA_NAME
         ]
 
-    # time - get end time
+    # time - get end time and save for final summary
     endtime = time.time()
-    deltatimesec = endtime - starttime
-
-    if bulkFlag == True:
-        pRate = (data_size / deltatimesec)/(1000000)  # MB/s
-
-        outStr = (
-            "\nCRDP Test Completed - PROTECT. %5.2f plaintext MBs processed. Process time: %5.2f sec.  Rate: %5.2f MB/s.\n"
-            % (data_size/(1000000), deltatimesec, pRate)
-        )
-    else:
-        pRate = (data_size / deltatimesec)  # slower rate for non-bulk
-
-        outStr = (
-            "\nCRDP Test Completed - PROTECT. %s plaintext bytes processed. Process time: %5.2f sec.  Rate: %5.2f B/s.\n"
-            % (data_size, deltatimesec, pRate)
-        )
-
-    print(colored(outStr, "green", attrs=["bold"]))
+    protect_time = endtime - starttime
 
 
 #####################################################################
@@ -338,8 +322,9 @@ if numTasks > 1:
             # For discrete mode, just use first result
             _, _, r_data = results[0]
 
-    # Display parallel metrics
-    display_parallel_metrics(agg_metrics, data_size, "REVEAL", bulkFlag)
+    # Display worker performance and save metrics for final summary
+    display_worker_performance(agg_metrics, "REVEAL")
+    reveal_agg_metrics = agg_metrics
 
 else:
     # Sequential execution mode (original code)
@@ -368,26 +353,52 @@ else:
             r_data = base64.b64decode(tmpData)
             p_data = f_content
 
-    # time - get end time
+    # time - get end time and save for final summary
     endtime = time.time()
-    deltatimesec = endtime - starttime
+    reveal_time = endtime - starttime
 
-    if bulkFlag == True:
-        pRate = (data_size / deltatimesec)/(1000000)  # MB/s
 
+#####################################################################
+# Final Summary - display CRDP Test Completed for both phases
+#####################################################################
+print(colored("\n==================== CRDP Test Summary ====================", "white", attrs=["bold"]))
+
+if numTasks > 1:
+    # Parallel mode: use aggregated metrics for summary with load distribution
+    display_test_summary(protect_agg_metrics, data_size, "PROTECT", bulkFlag)
+    display_test_summary(reveal_agg_metrics, data_size, "REVEAL", bulkFlag)
+else:
+    # Sequential mode: display completion messages from saved timing
+    if bulkFlag:
+        pRate_protect = (data_size / protect_time) / 1000000
         outStr = (
-            "\nCRDP Test Completed - REVEAL. %5.2f ciphertext MBs processed. Process time: %5.2f sec.  Rate: %5.2f MB/s.\n"
-            % (data_size/(1000000), deltatimesec, pRate)
+            "CRDP Test Completed - PROTECT. %5.2f MBs processed. Process time: %5.2f sec.  Rate: %5.2f MB/s."
+            % (data_size / 1000000, protect_time, pRate_protect)
         )
+        print(colored(outStr, "green", attrs=["bold"]))
+
+        pRate_reveal = (data_size / reveal_time) / 1000000
+        outStr = (
+            "CRDP Test Completed - REVEAL. %5.2f MBs processed. Process time: %5.2f sec.  Rate: %5.2f MB/s."
+            % (data_size / 1000000, reveal_time, pRate_reveal)
+        )
+        print(colored(outStr, "green", attrs=["bold"]))
     else:
-        pRate = (data_size / deltatimesec)  # slower rate for non-bulk
-
+        pRate_protect = data_size / protect_time
         outStr = (
-            "\nCRDP Test Completed - REVEAL. %s ciphertext bytes processed. Process time: %5.2f sec.  Rate: %5.2f B/s.\n"
-            % (data_size, deltatimesec, pRate)
+            "CRDP Test Completed - PROTECT. %s bytes processed. Process time: %5.2f sec.  Rate: %5.2f B/s."
+            % (data_size, protect_time, pRate_protect)
         )
+        print(colored(outStr, "green", attrs=["bold"]))
 
-    print(colored(outStr, "green", attrs=["bold"]))
+        pRate_reveal = data_size / reveal_time
+        outStr = (
+            "CRDP Test Completed - REVEAL. %s bytes processed. Process time: %5.2f sec.  Rate: %5.2f B/s."
+            % (data_size, reveal_time, pRate_reveal)
+        )
+        print(colored(outStr, "green", attrs=["bold"]))
+
+print(colored("============================================================\n", "white", attrs=["bold"]))
 
 outStr = "Plaintext (PT), CipherText (CT), and RevealText (RT) are as follows:"
 print(outStr)
