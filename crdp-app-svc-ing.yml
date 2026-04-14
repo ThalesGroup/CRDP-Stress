@@ -57,15 +57,18 @@ spec:
 
 ---
 #
-# SECTION:  NodePort-Only Access (No MetalLB)
-# This section is used when MetalLB is NOT available in the cluster.
-# Traffic reaches CRDP directly via the NodePort service defined above.
-# No Ingress resource is needed since the NodePort service already exposes the application
-# externally without requiring a LoadBalancer.
+# SECTION:  Access Notes
 #
-# To switch to the MetalLB/Ingress configuration, comment out this section and uncomment
-# the "Ingress Deployment (MetalLB Required)" section above.
+# Default (load-balanced) access:
+#   The default deployment path in makeSecretandDeploy.sh applies crdp-ingress.yml, which
+#   exposes CRDP via host-based routing through the NGINX Ingress Controller at:
+#     http://crdp.test256.io
+#   The Service above remains type: NodePort so that both the Ingress path and the direct
+#   NodePort fallback can coexist without modification.
 #
-# Access the application at:
-#   http://kube.test256.io:32085
+# Alternative (NodePort-only) access:
+#   If the Ingress path is not used, the NodePort service above exposes CRDP directly at:
+#     http://<any-node-ip>:32085
+#   To use this path, comment out the "kubectl apply -f crdp-ingress.yml" line in
+#   makeSecretandDeploy.sh.
 #
