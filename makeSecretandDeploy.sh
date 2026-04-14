@@ -6,7 +6,7 @@
 # deployed from crdp-ingress.yml (the default configuration).
 
 # Replace the regtoken value below with the one from CM for the CRDP App
-export REG_TOKEN_VALUE=wauGqIdZxTgNTXAeaG6xOKewmPzFLTgo1JaFcvuSPruZi8ELi1MIR2K5uMrhivya
+export REG_TOKEN_VALUE=v8Eg0jXcq3mGNkFHlvDnavAGFBO5qY7P4WfZmiAD5MOtR90NmRzrpgUL4OrKxlFf
 
 # delete any existing value for crdp-secret-name
 microk8s kubectl delete secret crdp-secret-name
