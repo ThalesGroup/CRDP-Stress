@@ -17,35 +17,29 @@ microk8s kubectl create secret generic crdp-secret-name --from-literal=regtoken=
 microk8s kubectl apply -f crdp-app-svc-ing.yml
 
 # ============================================================================
-# MetalLB + Ingress Option
+# Ingress Option (NGINX Ingress Controller)
 # ============================================================================
 # If you want to use host-based routing (e.g., crdp.test256.io) with an Ingress resource,
-# you must have both MetalLB and the NGINX Ingress Controller deployed and configured.
-# Without MetalLB, the Ingress Controller has no external IP and is unreachable from
-# outside the cluster.
+# you need the NGINX Ingress Controller enabled in MicroK8s. MetalLB is NOT required:
+# the MicroK8s ingress addon deploys ingress-nginx as a DaemonSet with hostNetwork=true,
+# so the controller listens on ports 80/443 of every node's IP directly.
 #
 # Prerequisites:
 #
-#   1. Enable MetalLB on MicroK8s:
-#        microk8s enable metallb
-#      You will be prompted for an IP address range. Provide a range of unused IPs on your
-#      local network that MetalLB can assign to LoadBalancer services. For example:
-#        microk8s enable metallb:192.168.3.100-192.168.3.250
-#
-#   2. Verify MetalLB is running:
-#        microk8s kubectl get pods -n metallb-system
-#
-#   3. Enable the NGINX Ingress Controller:
+#   1. Enable the NGINX Ingress Controller:
 #        microk8s enable ingress
 #
-#   4. Verify the Ingress Controller has been assigned an external IP by MetalLB:
-#        microk8s kubectl get svc -n ingress
-#      The EXTERNAL-IP column should show an IP from the MetalLB range (not <pending>).
-#      For example, MetalLB may assign 192.168.3.100 to the Ingress Controller.
+#   2. Verify the Ingress Controller pods are running on every node:
+#        microk8s kubectl get pods -n ingress -o wide
+#      You should see one nginx-ingress-microk8s-controller pod per node, all in Running state.
 #
-#   5. Map crdp.test256.io to the Ingress Controller's assigned external IP.
-#      Add an entry in DNS or /etc/hosts using the IP from step 4. For example:
+#   3. Map crdp.test256.io to any node's IP address.
+#      Because the controller runs on hostNetwork, any node IP will work. Add an entry
+#      in DNS or /etc/hosts. Node IPs in this environment typically fall in the
+#      192.168.3.100-192.168.3.250 range. For example:
 #        192.168.3.100  crdp.test256.io
+#      For high availability, point DNS at multiple node IPs in that range or put an
+#      external load balancer / round-robin DNS in front of the nodes.
 #
 # Once all prerequisites are met, uncomment the following line to deploy the Ingress resource:
-# microk8s kubectl apply -f crdp-ingress-metallb.yml
+# microk8s kubectl apply -f crdp-ingress.yml

@@ -1,13 +1,16 @@
 #
-# SECTION:  Ingress Deployment (MetalLB Required)
-# This section should ONLY be used if MetalLB is available and has been enabled in the cluster.
-# MetalLB provides LoadBalancer-type external IPs for bare-metal clusters, which the NGINX
-# Ingress Controller requires to be reachable from outside the cluster.
+# SECTION:  Ingress Deployment (NGINX Ingress Controller)
+# This section deploys an Ingress resource for host-based routing to crdp.test256.io.
+# It relies on the MicroK8s ingress addon, which runs the NGINX Ingress Controller as a
+# DaemonSet with hostNetwork=true, so the controller listens on ports 80/443 of every
+# node's IP directly. MetalLB is NOT required.
 #
-# This will leverage the load balancer crdp.test256.io to route traffic to the appropriate node and pod.
-# Note that the load balancer is configured to route traffic to both nodes, so either node can be used
-# as the ingress point.  The ingress controller will then route traffic to the appropriate pod based
-# on the rules defined in the ingress resource.
+# Traffic to crdp.test256.io reaches any node IP on port 80, and the ingress controller
+# routes it to the appropriate pod via the rules defined below. For high availability,
+# point DNS at multiple node IPs or put round-robin DNS / an external load balancer in
+# front of the nodes.
+#
+# See makeSecretandDeploy.sh for full prerequisites and deployment steps.
 #
 apiVersion: networking.k8s.io/v1
 kind: Ingress
