@@ -1,14 +1,21 @@
 #
 # SECTION:  Ingress Deployment (NGINX Ingress Controller)
 # This section deploys an Ingress resource for host-based routing to crdp.test256.io.
-# It relies on the MicroK8s ingress addon, which runs the NGINX Ingress Controller as a
-# DaemonSet with hostNetwork=true, so the controller listens on ports 80/443 of every
-# node's IP directly. MetalLB is NOT required.
+# It relies on the MicroK8s ingress addon (the NGINX Ingress Controller DaemonSet).
+# MetalLB is NOT required.
 #
-# Traffic to crdp.test256.io reaches any node IP on port 80, and the ingress controller
-# routes it to the appropriate pod via the rules defined below. For high availability,
-# point DNS at multiple node IPs or put round-robin DNS / an external load balancer in
-# front of the nodes.
+# IMPORTANT: The MicroK8s ingress addon does NOT enable hostNetwork on the controller
+# DaemonSet by default (observed on MicroK8s v1.33.9), so the controller pods get CNI
+# IPs (10.1.x.x) and nothing binds to ports 80/443 on the node's physical interface.
+# makeSecretandDeploy.sh detects this and patches the DaemonSet to set
+# hostNetwork=true + dnsPolicy=ClusterFirstWithHostNet before applying this manifest.
+# Deploying this Ingress without that patch will result in "No route to host" from
+# clients even though the pods and Ingress resource look healthy.
+#
+# Once patched, traffic to crdp.test256.io reaches any node IP on port 80, and NGINX
+# load-balances requests across all CRDP backend pods via crdp-service. For Layer-1
+# load balancing across nodes, use round-robin DNS or put an external load balancer
+# in front of the node IPs.
 #
 # See makeSecretandDeploy.sh for full prerequisites and deployment steps.
 #

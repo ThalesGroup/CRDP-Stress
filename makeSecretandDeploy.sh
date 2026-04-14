@@ -29,6 +29,25 @@ else
     microk8s kubectl rollout status daemonset/nginx-ingress-microk8s-controller -n ingress --timeout=120s
 fi
 
+# On some MicroK8s versions (observed on v1.33.9) the ingress addon does NOT set
+# hostNetwork=true on the controller DaemonSet, so the controller never binds to the
+# node's physical interface on ports 80/443 and is unreachable from outside the cluster.
+# Detect that case and patch the DaemonSet so the controller listens directly on each
+# node's IP. Safe to re-run: patching when hostNetwork is already true is a no-op.
+HOST_NETWORK=$(microk8s kubectl get daemonset nginx-ingress-microk8s-controller -n ingress \
+    -o jsonpath='{.spec.template.spec.hostNetwork}' 2>/dev/null)
+if [ "$HOST_NETWORK" != "true" ]; then
+    echo "Patching Ingress Controller DaemonSet to use hostNetwork=true..."
+    microk8s kubectl patch daemonset nginx-ingress-microk8s-controller -n ingress \
+        --type='json' \
+        -p='[{"op":"add","path":"/spec/template/spec/hostNetwork","value":true},
+             {"op":"add","path":"/spec/template/spec/dnsPolicy","value":"ClusterFirstWithHostNet"}]'
+    echo "Waiting for Ingress Controller rollout after hostNetwork patch..."
+    microk8s kubectl rollout status daemonset/nginx-ingress-microk8s-controller -n ingress --timeout=120s
+else
+    echo "Ingress Controller already running with hostNetwork=true."
+fi
+
 # Deploy Ingress resource for load-balanced host-based routing (default configuration)
 microk8s kubectl apply -f crdp-ingress.yml
 
@@ -36,23 +55,33 @@ microk8s kubectl apply -f crdp-ingress.yml
 # Default Configuration: Load-Balanced Ingress (NGINX Ingress Controller)
 # ============================================================================
 # The default deployment exposes CRDP via host-based routing at crdp.test256.io using
-# the NGINX Ingress Controller. MetalLB is NOT required: the MicroK8s ingress addon
-# deploys ingress-nginx as a DaemonSet with hostNetwork=true, so the controller listens
-# on ports 80/443 of every node's IP directly, giving you multi-node load balancing.
+# the NGINX Ingress Controller. MetalLB is NOT required. Note that the MicroK8s ingress
+# addon does NOT set hostNetwork=true on the controller DaemonSet by default (observed
+# on MicroK8s v1.33.9), so the script above patches the DaemonSet to enable hostNetwork.
+# Once patched, the controller binds directly to ports 80/443 on each node's physical
+# IP, and NGINX load-balances requests across all CRDP backend pods.
 #
-# The script above automatically checks whether the NGINX Ingress Controller is deployed
-# and runs "microk8s enable ingress" if it is not, so no manual ingress-addon setup is
-# required.
+# The script above automatically:
+#   - Enables the MicroK8s ingress addon if it is not already deployed
+#   - Patches the controller DaemonSet to use hostNetwork=true if it is not already set
+#   - Waits for the rollout to complete before applying the Ingress resource
+# No manual ingress-addon setup is required.
 #
 # Manual prerequisite:
 #
-#   Map crdp.test256.io to one or more node IP addresses.
-#   Because the controller runs on hostNetwork, any node IP will work. Add an entry in
-#   DNS or /etc/hosts. Node IPs in this environment typically fall in the
-#   192.168.3.100-192.168.3.250 range. For example:
-#     192.168.3.100  crdp.test256.io
-#   For high availability, point DNS at multiple node IPs in that range or put an
-#   external load balancer / round-robin DNS in front of the nodes.
+#   Map crdp.test256.io to one or more of your MicroK8s node IPs in DNS or /etc/hosts
+#   on every client that will call CRDP. In this environment the node IPs are:
+#     192.168.1.187  (sphere)
+#     192.168.1.188  (kube)
+#   For a single-node mapping:
+#     192.168.1.188  crdp.test256.io
+#   For round-robin DNS across both nodes (distributes client connections between both
+#   ingress controller pods for Layer-1 load balancing), add both entries under the
+#   same hostname in DNS, or add both lines to /etc/hosts:
+#     192.168.1.188  crdp.test256.io
+#     192.168.1.187  crdp.test256.io
+#   NGINX will always load-balance across all CRDP backend pods regardless of which
+#   node the request enters on.
 #
 # ============================================================================
 # Alternative: NodePort-Only Access (no Ingress)
