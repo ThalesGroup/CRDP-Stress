@@ -194,6 +194,14 @@ elif bulkFlag and batchSize > 0:
     for i in range(p_count):
         p_data_array.append(p_data)
 
+if numTasks > 1:
+    base_per_thread = p_count // numTasks
+    remainder = p_count % numTasks
+    if remainder > 0:
+        print(colored("  Items per thread: %d (%d threads get %d)" % (base_per_thread, remainder, base_per_thread + 1), "cyan"))
+    else:
+        print(colored("  Items per thread: %d" % base_per_thread, "cyan"))
+
 #####################################################################
 # Let's encrypt the data as fast as we can in two ways:
 # 1) as individual records or 2) as bulk data (faster)
@@ -227,8 +235,6 @@ if numTasks > 1:
             # For discrete mode, just use first result
             _, _, c_data, _ = results[0]
 
-    # Display worker performance and save metrics for final summary
-    display_worker_performance(agg_metrics, "PROTECT")
     protect_agg_metrics = agg_metrics
 
 else:
@@ -295,8 +301,6 @@ if numTasks > 1:
                 r_data = base64.b64decode(r_data)
                 p_data = f_content
 
-    # Display worker performance and save metrics for final summary
-    display_worker_performance(agg_metrics, "REVEAL")
     reveal_agg_metrics = agg_metrics
 
 else:
