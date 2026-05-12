@@ -549,22 +549,15 @@ def display_test_summary(agg_metrics, data_size, operation_name, bulkFlag):
     """
     overall_time = agg_metrics.overall_duration()
 
-    if bulkFlag:
-        pRate = (data_size / overall_time) / 1000000  # MB/s
-        outStr = (
-            f"CRDP Test Completed - {operation_name}. "
-            f"{data_size/1000000:.2f} MBs processed. "
-            f"Process time: {overall_time:.2f} sec. "
-            f"Rate: {pRate:.2f} MB/s."
-        )
-    else:
-        pRate = data_size / overall_time  # B/s
-        outStr = (
-            f"CRDP Test Completed - {operation_name}. "
-            f"{data_size} bytes processed. "
-            f"Process time: {overall_time:.2f} sec. "
-            f"Rate: {pRate:.2f} B/s."
-        )
+
+    pRate = (data_size / overall_time) / 1000000  # MB/s
+    outStr = (
+        f"CRDP Test Completed - {operation_name}. "
+        f"{data_size/1000000:.3f} MBs processed. "
+        f"Process time: {overall_time:.2f} sec. "
+        f"Rate: {pRate:.3f} MB/s."
+    )
+
 
     print(colored(outStr, "green", attrs=["bold"]))
 
