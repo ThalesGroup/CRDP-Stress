@@ -349,34 +349,21 @@ if numTasks > 1:
     display_test_summary(reveal_agg_metrics, data_size, "REVEAL", bulkFlag)
 else:
     # Sequential mode: display completion messages from saved timing
-    if bulkFlag:
-        pRate_protect = (data_size / protect_time) / 1000000
-        outStr = (
-            "CRDP Test Completed - PROTECT. %5.2f MBs processed. Process time: %5.2f sec.  Rate: %5.2f MB/s."
-            % (data_size / 1000000, protect_time, pRate_protect)
-        )
-        print(colored(outStr, "green", attrs=["bold"]))
 
-        pRate_reveal = (data_size / reveal_time) / 1000000
-        outStr = (
-            "CRDP Test Completed - REVEAL. %5.2f MBs processed. Process time: %5.2f sec.  Rate: %5.2f MB/s."
-            % (data_size / 1000000, reveal_time, pRate_reveal)
-        )
-        print(colored(outStr, "green", attrs=["bold"]))
-    else:
-        pRate_protect = data_size / protect_time
-        outStr = (
-            "CRDP Test Completed - PROTECT. %s bytes processed. Process time: %5.2f sec.  Rate: %5.2f B/s."
-            % (data_size, protect_time, pRate_protect)
-        )
-        print(colored(outStr, "green", attrs=["bold"]))
+    pRate_protect = (data_size / protect_time) / 1000000
+    outStr = (
+        "CRDP Test Completed - PROTECT. %5.3f MBs processed. Process time: %5.2f sec.  Rate: %5.3f MB/s."
+        % (data_size / 1000000, protect_time, pRate_protect)
+    )
+    print(colored(outStr, "green", attrs=["bold"]))
 
-        pRate_reveal = data_size / reveal_time
-        outStr = (
-            "CRDP Test Completed - REVEAL. %s bytes processed. Process time: %5.2f sec.  Rate: %5.2f B/s."
-            % (data_size, reveal_time, pRate_reveal)
-        )
-        print(colored(outStr, "green", attrs=["bold"]))
+    pRate_reveal = (data_size / reveal_time) / 1000000
+    outStr = (
+        "CRDP Test Completed - REVEAL. %5.3f MBs processed. Process time: %5.2f sec.  Rate: %5.3f MB/s."
+        % (data_size / 1000000, reveal_time, pRate_reveal)
+    )
+    print(colored(outStr, "green", attrs=["bold"]))
+
 
 print(colored("============================================================\n", "white", attrs=["bold"]))
 
