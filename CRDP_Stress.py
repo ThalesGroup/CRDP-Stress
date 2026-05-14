@@ -218,12 +218,50 @@ collectResults = len(csvListFile) > 0
 # Build the workload (p_count items) and the plaintext array (p_data_array).
 # p_data_array always has p_count entries so discrete and bulk paths share it.
 f_content = None
+badColumns = set()
 if csvListFile:
-    p_count = len(csvCells)
-    data_size = sum(len(cell.encode("utf-8")) for cell in csvCells)
-    numTasks = min(numTasks, p_count)
+    # Pre-screen each column: protect one sample (non-empty) cell per column.
+    # Columns whose sample is rejected by the policy are skipped entirely; their
+    # cells are left blank in the protected output.
+    columnSample = {}
+    for row in csvRows:
+        for col, cell in enumerate(row):
+            if col not in columnSample and cell != "":
+                columnSample[col] = cell
 
-    p_data_array = list(csvCells)
+    badColumnReason = {}
+    for col, sample in columnSample.items():
+        ok, msg = screenProtectPolicy(hostCRDP, sample, protectionPolicy)
+        if not ok:
+            badColumns.add(col)
+            badColumnReason[col] = msg
+
+    if badColumns:
+        tmpStr = "  *** WARNING: Column(s) not processable under policy '%s':" % protectionPolicy
+        print(colored(tmpStr, "yellow", attrs=["bold"]))
+        for c in sorted(badColumns):
+            colName = csvHeader[c] if c < len(csvHeader) else "?"
+            print(colored("      - %s (col %d) sample=%r" % (colName, c + 1, columnSample[c]), "yellow"))
+            print(colored("        reason: %s" % badColumnReason[c], "yellow"))
+        print(colored("      Cells in these columns will be left blank in the protected output.", "yellow"))
+
+    # Build the workload from cells in good columns only. Empty cells are also
+    # skipped since the policy cannot protect a zero-length value.
+    p_data_array = [
+        cell
+        for row in csvRows
+        for col, cell in enumerate(row)
+        if col not in badColumns and cell != ""
+    ]
+    p_count = len(p_data_array)
+
+    if p_count == 0:
+        tmpStr = "\n*** CRDP ERROR:  No CSV cells can be processed under policy '%s'. ***" % protectionPolicy
+        print(colored(tmpStr, "yellow", attrs=["bold"]))
+        exit()
+
+    data_size = sum(len(cell.encode("utf-8")) for cell in p_data_array)
+    numTasks = min(numTasks, p_count)
     p_data = p_data_array[0]
 
 elif payloadFile:
@@ -453,13 +491,21 @@ if csvListFile:
     base, ext = os.path.splitext(csvListFile)
     protectedFile = base + "_protected" + ext
 
+    # protected_values is in the same row-major order as the workload: one entry
+    # per good, non-empty cell. Skipped cells (bad columns or empty) are blank.
     with open(protectedFile, "w", newline="") as pf:
         writer = csv.writer(pf)
         writer.writerow(csvHeader)
-        idx = 0
+        pv_idx = 0
         for row in csvRows:
-            writer.writerow(protected_values[idx:idx + len(row)])
-            idx += len(row)
+            out_row = []
+            for col, cell in enumerate(row):
+                if col not in badColumns and cell != "":
+                    out_row.append(protected_values[pv_idx])
+                    pv_idx += 1
+                else:
+                    out_row.append("")
+            writer.writerow(out_row)
 
     outStr = "Protected CSV written to: %s  (%d data rows)" % (protectedFile, len(csvRows))
     print(colored(outStr, "green", attrs=["bold"]))

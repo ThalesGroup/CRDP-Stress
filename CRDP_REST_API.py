@@ -66,6 +66,34 @@ def protectData(t_hostCRDP, t_data, t_protectionPolicy):
     return t_protectedData, t_version
 
 
+def screenProtectPolicy(t_hostCRDP, t_data, t_protectionPolicy):
+    # -----------------------------------------------------------------------------
+    # Test whether a sample value can be protected under the given policy.
+    #
+    # Used to pre-screen CSV columns. Returns (ok, message) instead of exiting on
+    # failure so callers can skip columns whose data does not match the policy.
+    # -----------------------------------------------------------------------------
+    t_endpoint = "http://%s%s" % (t_hostCRDP, CRDP_PROTECT)
+
+    t_headers = {APP_CONTENT_TYPE: APP_JSON}
+    t_dataStr = {
+        CRDP_PROTECTION_POLICY_NAME: t_protectionPolicy,
+        CRDP_DATA_NAME: t_data,
+    }
+
+    try:
+        r = requests.post(
+            t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
+        )
+    except requests.exceptions.RequestException as e:
+        return False, str(e)
+
+    if r.status_code != STATUS_CODE_OK:
+        return False, r.text
+
+    return True, ""
+
+
 def protectBulkData(t_hostCRDP, t_dataArray, t_protectionPolicy):
     # -----------------------------------------------------------------------------
     # REST Assembly for bulk data protection
@@ -181,9 +209,7 @@ def kPrintError(t_str, t_r):
     # -----------------------------------------------------------------------------
     t_str_sc = str(t_r.status_code)
     t_str_r = str(t_r.reason)
-    # t_str_e     = str(t_r.json()['error'])
-    # t_str_e = str(t_r.json())
-    t_str_e = t_r
+    t_str_e = t_r.text
 
     tmpstr = "  --> %s Status Code: %s\n   Reason: %s\n   Error: %s" % (
         t_str,
