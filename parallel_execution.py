@@ -261,21 +261,26 @@ def revealBulkData_session(session, t_hostCRDP, t_dataArray, t_protectionPolicy,
 
 # -------------------- Worker Functions --------------------
 
-def worker_protect_discrete(task_id, start_idx, count, hostCRDP, p_data, protectionPolicy, pbar, lock):
+def worker_protect_discrete(task_id, start_idx, count, hostCRDP, p_data_array, protectionPolicy, collect_results, pbar, lock):
     """
     Worker function for discrete PROTECT operations.
-    Each worker makes individual protectData calls for its assigned chunk.
+    Each worker makes individual protectData calls for its assigned slice of
+    p_data_array. When collect_results is True (CSV list mode) every protected
+    value is returned in order; otherwise only the last value is returned.
     """
     session = requests.Session()
     metrics = WorkerMetrics(task_id)
     metrics.start_time = time.time()
 
     c_data = None
+    c_data_list = []
     c_version = None
 
     try:
         for i in range(count):
-            c_data, c_version = protectData_session(session, hostCRDP, p_data, protectionPolicy)
+            c_data, c_version = protectData_session(session, hostCRDP, p_data_array[start_idx + i], protectionPolicy)
+            if collect_results:
+                c_data_list.append(c_data)
 
             # Thread-safe progress update
             with lock:
@@ -289,7 +294,7 @@ def worker_protect_discrete(task_id, start_idx, count, hostCRDP, p_data, protect
         metrics.end_time = time.time()
         session.close()
 
-    return metrics, c_data, c_version
+    return metrics, (c_data_list if collect_results else c_data), c_version
 
 
 def worker_protect_bulk(task_id, data_chunk, hostCRDP, protectionPolicy, pbar, lock):
@@ -379,7 +384,7 @@ def worker_reveal_bulk(task_id, data_chunk, hostCRDP, protectionPolicy, c_versio
 
 # -------------------- Orchestration Functions --------------------
 
-def execute_protect_parallel(workload, bulkFlag, hostCRDP, p_data, p_data_array, protectionPolicy):
+def execute_protect_parallel(workload, bulkFlag, hostCRDP, p_data, p_data_array, protectionPolicy, collect_results=False):
     """
     Execute parallel PROTECT operations using ThreadPoolExecutor.
 
@@ -387,9 +392,11 @@ def execute_protect_parallel(workload, bulkFlag, hostCRDP, p_data, p_data_array,
         workload: List of (start_idx, count) tuples from distribute_workload()
         bulkFlag: Boolean indicating bulk mode
         hostCRDP: CRDP server hostname
-        p_data: Single plaintext data (for discrete mode)
-        p_data_array: Array of plaintext data (for bulk mode)
+        p_data: Single plaintext data (unused; kept for signature compatibility)
+        p_data_array: Array of plaintext data (one entry per item)
         protectionPolicy: Protection policy name
+        collect_results: When True, discrete workers return every protected
+            value in order (CSV list mode) instead of only the last one
 
     Returns:
         AggregatedMetrics, list of results, c_version
@@ -427,7 +434,7 @@ def execute_protect_parallel(workload, bulkFlag, hostCRDP, p_data, p_data_array,
                 for task_id, (start_idx, count) in enumerate(workload):
                     future = executor.submit(
                         worker_protect_discrete,
-                        task_id, start_idx, count, hostCRDP, p_data, protectionPolicy, pbar, progress_lock
+                        task_id, start_idx, count, hostCRDP, p_data_array, protectionPolicy, collect_results, pbar, progress_lock
                     )
                     futures[future] = task_id
 

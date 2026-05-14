@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile CRDP_Stress.py parallel_execution.py CRDP_REST_API.py)",
+      "Bash(py -m py_compile CRDP_Stress.py parallel_execution.py)",
+      "Bash(py -m py_compile CRDP_Stress.py)"
+    ]
+  }
+}

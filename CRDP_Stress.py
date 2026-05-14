@@ -8,10 +8,14 @@
 #
 # Usage:  CRDP_Stress.py
 #           -e <CRDP endpoint hostname or IP address>
-#           -i <input csv file>
-#           -b <batch size>
-#           -o <output filename>
-#           -h - header flag.  indicates if header is present in input csv file
+#           -p <protection policy name>
+#           -u <username>
+#           -batchsize <batch size>
+#           -threads <parallel worker count>
+#           -bulk - bulk submission flag
+#           -payload <filename> - a single file encrypted in its entirety
+#           -csvlist <filename> - a CSV file; every data cell is protected and a
+#                                 <name>_protected<ext> copy is written at the end
 #
 import argparse
 import time
@@ -21,6 +25,7 @@ import random
 from tqdm import tqdm
 from termcolor import colored
 import os
+import csv
 import base64
 import string
 from enum import Enum
@@ -53,16 +58,19 @@ parser.add_argument(
     "-p", nargs=1, action="store", required=True, dest="protectionPolicy"
 )
 parser.add_argument(
-    "-b", nargs=1, action="store", required=False, dest="batchSize", type=int
+    "-batchsize", nargs=1, action="store", required=False, dest="batchSize", type=int
 )
 parser.add_argument("-u", nargs=1, action="store", required=True, dest="username")
 parser.add_argument("-bulk", action=argparse.BooleanOptionalAction)
 parser.add_argument(
-    "-t", nargs=1, action="store", required=False, dest="numTasks", type=int, default=[1]
+    "-threads", nargs=1, action="store", required=False, dest="numTasks", type=int, default=[1]
 )
 
-parser.add_argument(
-    "-f", nargs=1, action="store", required=False, dest="inFile", type=argparse.FileType('r'))
+fileGroup = parser.add_mutually_exclusive_group(required=False)
+fileGroup.add_argument(
+    "-payload", nargs=1, action="store", dest="payloadFile")
+fileGroup.add_argument(
+    "-csvlist", nargs=1, action="store", dest="csvListFile")
 
 # Character Set Choice
 parser.add_argument("-c", nargs=1, action="store", dest="charSetValue", required=False, 
@@ -93,16 +101,48 @@ if numTasks < 1:
     print(colored(tmpStr, "yellow", attrs=["bold"]))
     exit()
 
-inFile = ""
+payloadFile = ""
 fileSize = 0
-if args.inFile:
-    inFile = str(args.inFile[0].name)
+if args.payloadFile:
+    payloadFile = str(args.payloadFile[0])
 
-    if os.path.isfile(inFile):
-        fileSize = os.path.getsize(inFile)
+    if not os.path.isfile(payloadFile):
+        tmpStr = "\n*** CRDP ERROR:  Payload file '%s' not found. ***" % payloadFile
+        print(colored(tmpStr, "yellow", attrs=["bold"]))
+        exit()
 
-if (batchSize == 0) and (inFile == ""):
-    tmpStr = "\n*** CRDP ERROR:  Either Batchsize or Filename must be supplied.  Please supply either and try again. ***"
+    fileSize = os.path.getsize(payloadFile)
+
+# CSV list mode - read the file now so the contents are available for the
+# input echo and for building the workload.
+csvListFile = ""
+csvHeader = []
+csvRows = []
+csvCells = []
+if args.csvListFile:
+    csvListFile = str(args.csvListFile[0])
+
+    if not os.path.isfile(csvListFile):
+        tmpStr = "\n*** CRDP ERROR:  CSV list file '%s' not found. ***" % csvListFile
+        print(colored(tmpStr, "yellow", attrs=["bold"]))
+        exit()
+
+    with open(csvListFile, newline="") as cf:
+        allRows = list(csv.reader(cf))
+
+    if len(allRows) < 2:
+        tmpStr = "\n*** CRDP ERROR:  CSV list file must contain a header row and at least one data row. ***"
+        print(colored(tmpStr, "yellow", attrs=["bold"]))
+        exit()
+
+    # First row is always preserved as a header; remaining rows are data.
+    csvHeader = allRows[0]
+    csvRows = allRows[1:]
+    for row in csvRows:
+        csvCells.extend(row)
+
+if (batchSize == 0) and (payloadFile == "") and (csvListFile == ""):
+    tmpStr = "\n*** CRDP ERROR:  Either Batchsize, -payload, or -csvlist must be supplied.  Please supply one and try again. ***"
     print(colored(tmpStr, "yellow", attrs=["bold"]))
     exit()
 
@@ -119,11 +159,16 @@ print(" Input Parameters:")
 
 # include filename if it is specified
 
-if len(inFile) > 0:
+if len(csvListFile) > 0:
+    tmpStr = (
+        "  CRDPHost: %s\n  ProtectionPolicy: %s\n  BulkProtection: %s\n  CSV List File: %s\n  Data Rows: %s\n  Data Cells: %s\n  Parallel Tasks: %s\n"
+        % (hostCRDP, protectionPolicy, bulkFlag, csvListFile, len(csvRows), len(csvCells), numTasks)
+    )
+elif len(payloadFile) > 0:
     batchLabel = "  Batch Size: %s\n" % batchSize if batchSize > 0 else ""
     tmpStr = (
-        "  CRDPHost: %s\n  ProtectionPolicy: %s\n  BulkProtection: %s\n  Input File: %s\n  File Size: %5.2f MB\n%s  Parallel Tasks: %s\n"
-        % (hostCRDP, protectionPolicy, bulkFlag, inFile, fileSize/1000000, batchLabel, numTasks)
+        "  CRDPHost: %s\n  ProtectionPolicy: %s\n  BulkProtection: %s\n  Payload File: %s\n  File Size: %5.2f MB\n%s  Parallel Tasks: %s\n"
+        % (hostCRDP, protectionPolicy, bulkFlag, payloadFile, fileSize/1000000, batchLabel, numTasks)
     )
 else:
     tmpStr = (
@@ -161,17 +206,27 @@ match(charSetValue):
 p_data_array = []  # reserve for later use - cleartext (plaintext)
 c_data = []  # reserve for later use - protectedtext
 c_data_array = []  # reserve for later use - protectedtext
+c_data_list = []  # reserve for later use - ordered discrete protectedtext
 c_version = []  # reserve for later use - cipher version
 r_data = []  # reserve for later use - revealedtext
 r_data_array = []  # reserve for later use - revealtext
 
-# how many times do we want to encrypt it?
-if batchSize > 0:
-    p_count = batchSize
-    data_size = len(p_data)*p_count
+# In CSV list mode, every data cell is protected once (and the protected
+# values are captured so the _protected file can be written at the end).
+collectResults = len(csvListFile) > 0
 
+# Build the workload (p_count items) and the plaintext array (p_data_array).
+# p_data_array always has p_count entries so discrete and bulk paths share it.
 f_content = None
-if fileSize > 0:
+if csvListFile:
+    p_count = len(csvCells)
+    data_size = sum(len(cell.encode("utf-8")) for cell in csvCells)
+    numTasks = min(numTasks, p_count)
+
+    p_data_array = list(csvCells)
+    p_data = p_data_array[0]
+
+elif payloadFile:
     if batchSize > 0:
         p_count = batchSize
     elif numTasks > 1:
@@ -181,18 +236,19 @@ if fileSize > 0:
     data_size = fileSize * p_count
     numTasks = min(numTasks, p_count)
 
-    with open(inFile, 'rb') as f:
+    with open(payloadFile, 'rb') as f:
         f_content = f.read()
         f_encode = base64.b64encode(f_content)
         f_encoded = str(f_encode)[1:]
 
     p_data = f_encoded
-    if bulkFlag:
-        for i in range(p_count):
-            p_data_array.append(f_encoded)
-elif bulkFlag and batchSize > 0:
-    for i in range(p_count):
-        p_data_array.append(p_data)
+    p_data_array = [f_encoded] * p_count
+
+else:
+    # Random plaintext mode - encrypt the same generated payload batchSize times.
+    p_count = batchSize
+    data_size = len(p_data) * p_count
+    p_data_array = [p_data] * p_count
 
 if numTasks > 1:
     base_per_thread = p_count // numTasks
@@ -217,7 +273,7 @@ if numTasks > 1:
 
     # Execute parallel PROTECT
     agg_metrics, results, c_version = execute_protect_parallel(
-        workload, bulkFlag, hostCRDP, p_data, p_data_array, protectionPolicy
+        workload, bulkFlag, hostCRDP, p_data, p_data_array, protectionPolicy, collectResults
     )
 
     # Collect all results from all workers
@@ -231,6 +287,12 @@ if numTasks > 1:
             # Extract first item for validation display
             p_data = p_data_array[0]
             c_data = c_data_array[0][CRDP_PROTECTED_DATA_NAME]
+        elif collectResults:
+            # CSV list mode: combine every protected value, in order
+            c_data_list = []
+            for task_id, metrics, worker_c_data_list, version in sorted(results, key=lambda x: x[0]):
+                c_data_list.extend(worker_c_data_list)
+            c_data = c_data_list[0]
         else:
             # For discrete mode, just use first result
             _, _, c_data, _ = results[0]
@@ -243,7 +305,12 @@ else:
         starttime = time.time()
 
         for i in tqdm(range(p_count), desc="Discrete PROTECT Progress"):
-            c_data, c_version = protectData(hostCRDP, p_data, protectionPolicy)
+            c_data, c_version = protectData(hostCRDP, p_data_array[i], protectionPolicy)
+            if collectResults:
+                c_data_list.append(c_data)
+
+        if collectResults:
+            c_data = c_data_list[0]
 
     else:
         print(" -->  CRDP Bulk PROTECT processing...")
@@ -289,7 +356,7 @@ if numTasks > 1:
             r_data = r_data_array[0][CRDP_DATA_NAME]
 
             # If a file was supplied, decode the returned data (base64) and change p_data to the actual file contents
-            if len(inFile) > 0:
+            if len(payloadFile) > 0:
                 tmpData = r_data_array[0][CRDP_DATA_NAME]
                 r_data = base64.b64decode(tmpData)
                 p_data = f_content
@@ -297,7 +364,7 @@ if numTasks > 1:
             # For discrete mode, just use first result
             _, _, r_data = results[0]
 
-            if len(inFile) > 0:
+            if len(payloadFile) > 0:
                 r_data = base64.b64decode(r_data)
                 p_data = f_content
 
@@ -311,7 +378,7 @@ else:
         for i in tqdm(range(p_count), desc="Discrete REVEAL Progress"):
             r_data = revealData(hostCRDP, c_data, protectionPolicy, c_version, r_user)
 
-        if len(inFile) > 0:
+        if len(payloadFile) > 0:
             r_data = base64.b64decode(r_data)
             p_data = f_content
 
@@ -328,7 +395,7 @@ else:
         r_data = r_data_array[0][CRDP_DATA_NAME]  # retreive first recorded in returned data
 
         # If a file was supplied, decode the returned data (base64) and change p_data to the actual file contents
-        if len(inFile) > 0:
+        if len(payloadFile) > 0:
             tmpData = r_data_array[0][CRDP_DATA_NAME]
             r_data = base64.b64decode(tmpData)
             p_data = f_content
@@ -372,3 +439,42 @@ print(outStr)
 
 outStr = " PT: %s\n CT: %s\n RT: %s\n" % (p_data[0:63], c_data[0:63], r_data[0:63])
 print(colored(outStr, "grey", attrs=["bold"]))
+
+#####################################################################
+# CSV list mode - write the _protected copy once, after the round trip.
+# The header row is preserved as-is; every data cell is replaced with its
+# protected/tokenized equivalent.
+#####################################################################
+if csvListFile:
+    if bulkFlag:
+        protected_values = [item[CRDP_PROTECTED_DATA_NAME] for item in c_data_array]
+    else:
+        protected_values = c_data_list
+
+    base, ext = os.path.splitext(csvListFile)
+    protectedFile = base + "_protected" + ext
+
+    with open(protectedFile, "w", newline="") as pf:
+        writer = csv.writer(pf)
+        writer.writerow(csvHeader)
+        idx = 0
+        for row in csvRows:
+            writer.writerow(protected_values[idx:idx + len(row)])
+            idx += len(row)
+
+    outStr = "Protected CSV written to: %s  (%d data rows)" % (protectedFile, len(csvRows))
+    print(colored(outStr, "green", attrs=["bold"]))
+
+#####################################################################
+# Payload mode - write the protected payload once, after the round trip.
+# An existing "_protected" file is overwritten.
+#####################################################################
+if payloadFile:
+    base, ext = os.path.splitext(payloadFile)
+    protectedFile = base + "_protected" + ext
+
+    with open(protectedFile, "w") as pf:
+        pf.write(c_data)
+
+    outStr = "Protected payload written to: %s" % protectedFile
+    print(colored(outStr, "green", attrs=["bold"]))
