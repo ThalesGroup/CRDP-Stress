@@ -238,8 +238,7 @@ elif payloadFile:
 
     with open(payloadFile, 'rb') as f:
         f_content = f.read()
-        f_encode = base64.b64encode(f_content)
-        f_encoded = str(f_encode)[1:]
+        f_encoded = base64.b64encode(f_content).decode("ascii")
 
     p_data = f_encoded
     p_data_array = [f_encoded] * p_count
