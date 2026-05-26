@@ -10,7 +10,8 @@
       "WebSearch",
       "Bash(py -c \"import secrets; iv=secrets.token_bytes\\(28\\); print\\('hex:', iv.hex\\(\\)\\); print\\('len\\(bytes\\):', len\\(iv\\)\\); print\\('len\\(hexchars\\):', len\\(iv.hex\\(\\)\\)\\)\")",
       "WebFetch(domain:thalesdocs.com)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(git checkout *)"
     ]
   }
 }
