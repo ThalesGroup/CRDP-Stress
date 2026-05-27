@@ -19,7 +19,10 @@
       "Read(//c/c/Users/T0261255/Documents/PythonLab/CRDP-Stress/**)",
       "Bash(git merge *)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(git fetch *)",
+      "Bash(git rev-list *)",
+      "Bash(git push *)"
     ]
   }
 }
