@@ -31,14 +31,14 @@ APP_CONTENT_TYPE = "Content-Type"
 APP_JSON = "application/json"
 
 
-def protectData(t_hostCRDP, t_data, t_protectionPolicy):
+def protectData(t_endpointCRDP, t_data, t_protectionPolicy):
     # -----------------------------------------------------------------------------
     # REST Assembly for data protection
     #
     # Assemble and send the command to CRDP for protecting (encrypting) data and
     # retrieve the result and the external version.
     # -----------------------------------------------------------------------------
-    t_endpoint = "http://%s%s" % (t_hostCRDP, CRDP_PROTECT)
+    t_endpoint = "http://%s%s" % (t_endpointCRDP, CRDP_PROTECT)
 
     t_headers = {APP_CONTENT_TYPE: APP_JSON}
     t_dataStr = {
@@ -66,14 +66,14 @@ def protectData(t_hostCRDP, t_data, t_protectionPolicy):
     return t_protectedData, t_version
 
 
-def screenProtectPolicy(t_hostCRDP, t_data, t_protectionPolicy):
+def screenProtectPolicy(t_endpointCRDP, t_data, t_protectionPolicy):
     # -----------------------------------------------------------------------------
     # Test whether a sample value can be protected under the given policy.
     #
     # Used to pre-screen CSV columns. Returns (ok, message) instead of exiting on
     # failure so callers can skip columns whose data does not match the policy.
     # -----------------------------------------------------------------------------
-    t_endpoint = "http://%s%s" % (t_hostCRDP, CRDP_PROTECT)
+    t_endpoint = "http://%s%s" % (t_endpointCRDP, CRDP_PROTECT)
 
     t_headers = {APP_CONTENT_TYPE: APP_JSON}
     t_dataStr = {
@@ -94,14 +94,14 @@ def screenProtectPolicy(t_hostCRDP, t_data, t_protectionPolicy):
     return True, ""
 
 
-def protectBulkData(t_hostCRDP, t_dataArray, t_protectionPolicy):
+def protectBulkData(t_endpointCRDP, t_dataArray, t_protectionPolicy):
     # -----------------------------------------------------------------------------
     # REST Assembly for bulk data protection
     #
     # Assemble and send the command to CRDP for protecting (encrypting) data and
     # retrieve the result and the external version as an array.
     # -----------------------------------------------------------------------------
-    t_endpoint = "http://%s%s" % (t_hostCRDP, CRDP_BULK_PROTECT)
+    t_endpoint = "http://%s%s" % (t_endpointCRDP, CRDP_BULK_PROTECT)
 
     t_headers = {APP_CONTENT_TYPE: APP_JSON}
     t_dataStr = {
@@ -129,14 +129,14 @@ def protectBulkData(t_hostCRDP, t_dataArray, t_protectionPolicy):
     return t_protectedData, t_version
 
 
-def revealData(t_hostCRDP, t_data, t_protectionPolicy, t_externalVersion, t_user):
+def revealData(t_endpointCRDP, t_data, t_protectionPolicy, t_externalVersion, t_user):
     # -----------------------------------------------------------------------------
     # REST Assembly for data reveal
     #
     # Assemble and send the command to CRDP for reveal (decrypting) data and
     # retrieve the result and the external version.
     # -----------------------------------------------------------------------------
-    t_endpoint = "http://%s%s" % (t_hostCRDP, CRDP_REVEAL)
+    t_endpoint = "http://%s%s" % (t_endpointCRDP, CRDP_REVEAL)
 
     t_headers = {APP_CONTENT_TYPE: APP_JSON}
     t_dataStr = {
@@ -166,7 +166,7 @@ def revealData(t_hostCRDP, t_data, t_protectionPolicy, t_externalVersion, t_user
 
 
 def revealBulkData(
-    t_hostCRDP, t_dataArray, t_protectionPolicy, t_externalVersion, t_user
+    t_endpointCRDP, t_dataArray, t_protectionPolicy, t_externalVersion, t_user
 ):
     # -----------------------------------------------------------------------------
     # REST Assembly for bulk data reveal
@@ -174,7 +174,7 @@ def revealBulkData(
     # Assemble and send the command to CRDP for prevealingg (decrypting) bulk data and
     # retrieve the result as an array.
     # -----------------------------------------------------------------------------
-    t_endpoint = "http://%s%s" % (t_hostCRDP, CRDP_BULK_REVEAL)
+    t_endpoint = "http://%s%s" % (t_endpointCRDP, CRDP_BULK_REVEAL)
 
     t_headers = {APP_CONTENT_TYPE: APP_JSON}
     t_dataStr = {

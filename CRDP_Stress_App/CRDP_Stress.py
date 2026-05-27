@@ -7,12 +7,12 @@
 # Time will be measured for the file to be encrypted excluding file I/O actions.
 #
 # Usage:  CRDP_Stress.py
-#           -e <CRDP endpoint hostname or IP address>
-#           -p <protection policy name>
-#           -u <username>
-#           -batchsize <batch size>
+#           -endpoint <CRDP endpoint hostname or IP address>
+#           -policy <protection policy name>
+#           -user <username>
+#           -iterations <iteration count>
+#           -batchsize <plaintext payloads per bulk message; 0 = all-in-one>
 #           -threads <parallel worker count>
-#           -bulk - bulk submission flag
 #           -payload <filename> - a single file encrypted in its entirety
 #           -csvlist <filename> - a CSV file; every data cell is protected and a
 #                                 <name>_protected<ext> copy is written at the end
@@ -53,50 +53,57 @@ class charSet(Enum):
 # Code for collecting and parsing input information from command line
 #####################################################################
 parser = argparse.ArgumentParser()
-parser.add_argument("-e", nargs=1, action="store", required=True, dest="hostnameCRDP")
+parser.add_argument("-endpoint", nargs=1, action="store", required=True, dest="endpointCRDP", help="CRDP Endpoint FQDN or IP Address")
 parser.add_argument(
-    "-p", nargs=1, action="store", required=True, dest="protectionPolicy"
+    "-policy", nargs=1, action="store", required=True, dest="protectionPolicy", help="CRDP Protection Policy Name"
 )
 parser.add_argument(
-    "-batchsize", nargs=1, action="store", required=False, dest="batchSize", type=int
+    "-iterations", nargs=1, action="store", required=False, dest="iterations", type=int, help="Number of times plaintext will be processed by CRDP"
 )
-parser.add_argument("-u", nargs=1, action="store", required=True, dest="username")
-parser.add_argument("-bulk", action=argparse.BooleanOptionalAction)
+parser.add_argument("-user", nargs=1, action="store", required=True, dest="username", help="Username of user to be used against Access Policy")
 parser.add_argument(
-    "-threads", nargs=1, action="store", required=False, dest="numTasks", type=int, default=[1]
+    "-batchsize", nargs=1, action="store", required=False, dest="batchsize", type=int, default=[1],
+    help="Number of plaintext payloads sent in a single message to CRDP.  Use a value of 0 if all plaintext iterations or plaintext messages should be sent in a single message."
+)
+parser.add_argument(
+    "-threads", nargs=1, action="store", required=False, dest="numThreads", type=int, default=[1], metavar="NUMTHREADS", help="Number of concurrent client threads sending data to CRDP for processing"
 )
 
 fileGroup = parser.add_mutually_exclusive_group(required=False)
 fileGroup.add_argument(
-    "-payload", nargs=1, action="store", dest="payloadFile")
+    "-payload", nargs=1, action="store", dest="payloadFile", help="Binary or image file that will be used as plaintext")
 fileGroup.add_argument(
-    "-csvlist", nargs=1, action="store", dest="csvListFile")
+    "-csvlist", nargs=1, action="store", dest="csvListFile", help="csv file with columns of plaintext data for encryption or tokenization")
 
 # Character Set Choice
-parser.add_argument("-c", nargs=1, action="store", dest="charSetValue", required=False, 
+parser.add_argument("-charset", nargs=1, action="store", dest="charSetValue", required=False,
                     choices=[charSet.alphanumeric.value,
                              charSet.digitsOnly.value,
                              charSet.printableascii.value],
-                    default=[charSet.alphanumeric.value] )
+                    default=[charSet.alphanumeric.value],
+                    help="Character set used when random plaintext needs to be generated (ignored when -payload or -csvlist is used)")
 
 args = parser.parse_args()
 
 # Echo Input Parameters
-hostCRDP = args.hostnameCRDP[0]
+endpointCRDP = args.endpointCRDP[0]
 
-batchSize = 0
-if args.batchSize:
-    batchSize = args.batchSize[0]
+iterations = 0
+if args.iterations:
+    iterations = args.iterations[0]
+
+batchsize = args.batchsize[0]
+if batchsize < 0:
+    tmpStr = "\n*** CRDP ERROR:  -batchsize must be 0 or a positive integer. ***"
+    print(colored(tmpStr, "yellow", attrs=["bold"]))
+    exit()
 
 protectionPolicy = args.protectionPolicy[0]
-bulkFlag = False
-if args.bulk:
-    bulkFlag = True
 r_user = args.username[0]
 
 # Parse number of tasks (parallel workers)
-numTasks = args.numTasks[0] if args.numTasks else 1
-if numTasks < 1:
+numThreads = args.numThreads[0] if args.numThreads else 1
+if numThreads < 1:
     tmpStr = "\n*** CRDP ERROR: Number of tasks must be >= 1. ***"
     print(colored(tmpStr, "yellow", attrs=["bold"]))
     exit()
@@ -141,10 +148,10 @@ if args.csvListFile:
     for row in csvRows:
         csvCells.extend(row)
 
-if (batchSize == 0) and (payloadFile == "") and (csvListFile == ""):
-    tmpStr = "\n*** CRDP ERROR:  Either Batchsize, -payload, or -csvlist must be supplied.  Please supply one and try again. ***"
-    print(colored(tmpStr, "yellow", attrs=["bold"]))
-    exit()
+# When no source is specified (no -iterations, no -payload, no -csvlist),
+# default to a single random-plaintext iteration.
+if iterations == 0:
+    iterations = 1
 
 # Collect the character set
 charSetValue = str(" ".join(args.charSetValue))
@@ -159,21 +166,22 @@ print(" Input Parameters:")
 
 # include filename if it is specified
 
+batchsizeLabel = "all-in-one (0)" if batchsize == 0 else str(batchsize)
+
 if len(csvListFile) > 0:
     tmpStr = (
-        "  CRDPHost: %s\n  ProtectionPolicy: %s\n  BulkProtection: %s\n  CSV List File: %s\n  Data Rows: %s\n  Data Cells: %s\n  Parallel Tasks: %s\n"
-        % (hostCRDP, protectionPolicy, bulkFlag, csvListFile, len(csvRows), len(csvCells), numTasks)
+        "  CRDPEndpoint: %s\n  ProtectionPolicy: %s\n  CSV List File: %s\n  Data Rows: %s\n  Data Cells: %s\n  Iterations: %s\n  Batch Size: %s\n  Parallel Tasks: %s\n"
+        % (endpointCRDP, protectionPolicy, csvListFile, len(csvRows), len(csvCells), iterations, batchsizeLabel, numThreads)
     )
 elif len(payloadFile) > 0:
-    batchLabel = "  Batch Size: %s\n" % batchSize if batchSize > 0 else ""
     tmpStr = (
-        "  CRDPHost: %s\n  ProtectionPolicy: %s\n  BulkProtection: %s\n  Payload File: %s\n  File Size: %5.2f MB\n%s  Parallel Tasks: %s\n"
-        % (hostCRDP, protectionPolicy, bulkFlag, payloadFile, fileSize/1000000, batchLabel, numTasks)
+        "  CRDPEndpoint: %s\n  ProtectionPolicy: %s\n  Payload File: %s\n  File Size: %5.2f MB\n  Iterations: %s\n  Batch Size: %s\n  Parallel Tasks: %s\n"
+        % (endpointCRDP, protectionPolicy, payloadFile, fileSize/1000000, iterations, batchsizeLabel, numThreads)
     )
 else:
     tmpStr = (
-        "  CRDPHost: %s\n  BatchSize: %s\n  ProtectionPolicy: %s\n  BulkProtection: %s\n  Character Set: %s\n  Parallel Tasks: %s\n"
-        % (hostCRDP, batchSize, protectionPolicy, bulkFlag, charSetValue, numTasks)
+        "  CRDPEndpoint: %s\n  Iterations: %s\n  Batch Size: %s\n  ProtectionPolicy: %s\n  Character Set: %s\n  Parallel Tasks: %s\n"
+        % (endpointCRDP, iterations, batchsizeLabel, protectionPolicy, charSetValue, numThreads)
     )
 
 print(tmpStr)
@@ -206,19 +214,15 @@ match(charSetValue):
 p_data_array = []  # reserve for later use - cleartext (plaintext)
 c_data = []  # reserve for later use - protectedtext
 c_data_array = []  # reserve for later use - protectedtext
-c_data_list = []  # reserve for later use - ordered discrete protectedtext
 c_version = []  # reserve for later use - cipher version
 r_data = []  # reserve for later use - revealedtext
 r_data_array = []  # reserve for later use - revealtext
 
-# In CSV list mode, every data cell is protected once (and the protected
-# values are captured so the _protected file can be written at the end).
-collectResults = len(csvListFile) > 0
-
 # Build the workload (p_count items) and the plaintext array (p_data_array).
-# p_data_array always has p_count entries so discrete and bulk paths share it.
+# Then split p_data_array into bulk messages of size `batchsize`.
 f_content = None
 badColumns = set()
+base_cell_count = 0  # CSV mode: cells per iteration (for _protected.csv output)
 if csvListFile:
     # Pre-screen each column: protect one sample (non-empty) cell per column.
     # Columns whose sample is rejected by the policy are skipped entirely; their
@@ -231,7 +235,7 @@ if csvListFile:
 
     badColumnReason = {}
     for col, sample in columnSample.items():
-        ok, msg = screenProtectPolicy(hostCRDP, sample, protectionPolicy)
+        ok, msg = screenProtectPolicy(endpointCRDP, sample, protectionPolicy)
         if not ok:
             badColumns.add(col)
             badColumnReason[col] = msg
@@ -247,32 +251,29 @@ if csvListFile:
 
     # Build the workload from cells in good columns only. Empty cells are also
     # skipped since the policy cannot protect a zero-length value.
-    p_data_array = [
+    base_cells = [
         cell
         for row in csvRows
         for col, cell in enumerate(row)
         if col not in badColumns and cell != ""
     ]
-    p_count = len(p_data_array)
+    base_cell_count = len(base_cells)
 
-    if p_count == 0:
+    if base_cell_count == 0:
         tmpStr = "\n*** CRDP ERROR:  No CSV cells can be processed under policy '%s'. ***" % protectionPolicy
         print(colored(tmpStr, "yellow", attrs=["bold"]))
         exit()
 
+    # Repeat the cell list `iterations` times for stress repetition. The
+    # _protected.csv output is written from the first iteration's results only.
+    p_data_array = base_cells * iterations
+    p_count = len(p_data_array)
     data_size = sum(len(cell.encode("utf-8")) for cell in p_data_array)
-    numTasks = min(numTasks, p_count)
     p_data = p_data_array[0]
 
 elif payloadFile:
-    if batchSize > 0:
-        p_count = batchSize
-    elif numTasks > 1:
-        p_count = numTasks
-    else:
-        p_count = 1
+    p_count = iterations
     data_size = fileSize * p_count
-    numTasks = min(numTasks, p_count)
 
     with open(payloadFile, 'rb') as f:
         f_content = f.read()
@@ -282,164 +283,85 @@ elif payloadFile:
     p_data_array = [f_encoded] * p_count
 
 else:
-    # Random plaintext mode - encrypt the same generated payload batchSize times.
-    p_count = batchSize
+    # Random plaintext mode - encrypt the same generated payload `iterations` times.
+    p_count = iterations
     data_size = len(p_data) * p_count
     p_data_array = [p_data] * p_count
 
-if numTasks > 1:
-    base_per_thread = p_count // numTasks
-    remainder = p_count % numTasks
-    if remainder > 0:
-        print(colored("  Items per thread: %d (%d threads get %d)" % (base_per_thread, remainder, base_per_thread + 1), "cyan"))
-    else:
-        print(colored("  Items per thread: %d" % base_per_thread, "cyan"))
+# Split the flat plaintext array into bulk messages. batchsize == 0 means
+# everything goes in one message; otherwise chunks of `batchsize` (last may be smaller).
+if batchsize == 0:
+    messages = [p_data_array]
+else:
+    messages = [p_data_array[i:i + batchsize] for i in range(0, p_count, batchsize)]
+message_count = len(messages)
+
+# Cap thread count to the number of messages - no benefit in having idle workers.
+numThreads = min(numThreads, message_count)
+
+print(colored("  Total payloads: %d  |  Messages: %d  |  Workers: %d" % (p_count, message_count, numThreads), "cyan"))
 
 #####################################################################
-# Let's encrypt the data as fast as we can in two ways:
-# 1) as individual records or 2) as bulk data (faster)
+# PROTECT phase: every call goes through the bulk REST API. The plaintext
+# array has been split into `messages` (each a list of `batchsize` payloads).
+# With numThreads > 1, messages are distributed round-robin across workers.
 #####################################################################
-starttime = time.time()
-
 print(colored("*** CRDP PROTECTION Test Started ***", "white", attrs=["bold"]))
 
-# Check if parallel execution is requested
-if numTasks > 1:
-    # Parallel execution mode
-    workload = distribute_workload(p_count, numTasks)
-
-    # Execute parallel PROTECT
-    agg_metrics, results, c_version = execute_protect_parallel(
-        workload, bulkFlag, hostCRDP, p_data, p_data_array, protectionPolicy, collectResults
+if numThreads > 1:
+    starttime = time.time()
+    protect_agg_metrics, c_data_array, c_version = execute_protect_messages_parallel(
+        messages, numThreads, endpointCRDP, protectionPolicy
     )
-
-    # Collect all results from all workers
-    if results:
-        if bulkFlag:
-            # Combine encrypted results from all workers into one array
-            c_data_array = []
-            for task_id, metrics, worker_c_data_array, version in sorted(results, key=lambda x: x[0]):
-                c_data_array.extend(worker_c_data_array)
-
-            # Extract first item for validation display
-            p_data = p_data_array[0]
-            c_data = c_data_array[0][CRDP_PROTECTED_DATA_NAME]
-        elif collectResults:
-            # CSV list mode: combine every protected value, in order
-            c_data_list = []
-            for task_id, metrics, worker_c_data_list, version in sorted(results, key=lambda x: x[0]):
-                c_data_list.extend(worker_c_data_list)
-            c_data = c_data_list[0]
-        else:
-            # For discrete mode, just use first result
-            _, _, c_data, _ = results[0]
-
-    protect_agg_metrics = agg_metrics
-
+    endtime = time.time()
+    protect_time = endtime - starttime
 else:
-    # Sequential execution mode
-    if bulkFlag == False:
-        starttime = time.time()
-
-        for i in tqdm(range(p_count), desc="Discrete PROTECT Progress"):
-            c_data, c_version = protectData(hostCRDP, p_data_array[i], protectionPolicy)
-            if collectResults:
-                c_data_list.append(c_data)
-
-        if collectResults:
-            c_data = c_data_list[0]
-
-    else:
-        print(" -->  CRDP Bulk PROTECT processing...")
-        starttime = time.time()
-        c_data_array, c_version = protectBulkData(hostCRDP, p_data_array, protectionPolicy)
-
-        p_data = p_data_array[0]
-        c_data = c_data_array[0][CRDP_PROTECTED_DATA_NAME]
-
-    # time - get end time and save for final summary
+    starttime = time.time()
+    c_data_array = []
+    c_version = None
+    for msg in tqdm(messages, desc="Bulk PROTECT Progress"):
+        chunk, version = protectBulkData(endpointCRDP, msg, protectionPolicy)
+        c_data_array.extend(chunk)
+        if c_version is None:
+            c_version = version
     endtime = time.time()
     protect_time = endtime - starttime
 
+p_data = p_data_array[0]
+c_data = c_data_array[0][CRDP_PROTECTED_DATA_NAME]
+
 
 #####################################################################
-# Let's decrypt the data as fast as we can in two ways:
-# 1) as individual records or 2) as bulk data (faster)
+# REVEAL phase: re-chunk the protected data into messages of `batchsize`
+# and submit through the bulk REVEAL API using the same scheme.
 #####################################################################
-starttime = time.time()
-
 print(colored("*** CRDP REVEAL Test Started ***", "white", attrs=["bold"]))
 
-# Check if parallel execution is requested
-if numTasks > 1:
-    # Parallel execution mode
-    # Distribute workload across tasks
-    workload = distribute_workload(p_count, numTasks)
-
-    # Execute parallel REVEAL
-    agg_metrics, results = execute_reveal_parallel(
-        workload, bulkFlag, hostCRDP, c_data, c_data_array, protectionPolicy, c_version, r_user
-    )
-
-    # Collect all results from all workers
-    if results:
-        if bulkFlag:
-            # Combine revealed results from all workers into one array
-            r_data_array = []
-            for task_id, metrics, worker_r_data_array in sorted(results, key=lambda x: x[0]):
-                r_data_array.extend(worker_r_data_array)
-
-            # Extract first item for validation display
-            r_data = r_data_array[0][CRDP_DATA_NAME]
-
-            # If a file was supplied, decode the returned data (base64) and change p_data to the actual file contents
-            if len(payloadFile) > 0:
-                tmpData = r_data_array[0][CRDP_DATA_NAME]
-                r_data = base64.b64decode(tmpData)
-                p_data = f_content
-        else:
-            # For discrete mode, just use first result
-            _, _, r_data = results[0]
-
-            if len(payloadFile) > 0:
-                r_data = base64.b64decode(r_data)
-                p_data = f_content
-
-    reveal_agg_metrics = agg_metrics
-
+if batchsize == 0:
+    reveal_messages = [c_data_array]
 else:
-    # Sequential execution mode
-    if bulkFlag == False:
-        starttime = time.time()
+    reveal_messages = [c_data_array[i:i + batchsize] for i in range(0, len(c_data_array), batchsize)]
 
-        for i in tqdm(range(p_count), desc="Discrete REVEAL Progress"):
-            r_data = revealData(hostCRDP, c_data, protectionPolicy, c_version, r_user)
-
-        if len(payloadFile) > 0:
-            r_data = base64.b64decode(r_data)
-            p_data = f_content
-
-    else:
-        # no need to rebuild c_data_array since it was populated earlier
-
-        print(" -->  CRDP Bulk REVEAL processing...")
-
-        # time - re-retrieve start time
-        starttime = time.time()
-        r_data_array = revealBulkData(
-            hostCRDP, c_data_array, protectionPolicy, c_version, r_user
-        )
-        r_data = r_data_array[0][CRDP_DATA_NAME]  # retreive first recorded in returned data
-
-        # If a file was supplied, decode the returned data (base64) and change p_data to the actual file contents
-        if len(payloadFile) > 0:
-            tmpData = r_data_array[0][CRDP_DATA_NAME]
-            r_data = base64.b64decode(tmpData)
-            p_data = f_content
-
-    # time - get end time and save for final summary
+if numThreads > 1:
+    starttime = time.time()
+    reveal_agg_metrics, r_data_array = execute_reveal_messages_parallel(
+        reveal_messages, numThreads, endpointCRDP, protectionPolicy, c_version, r_user
+    )
     endtime = time.time()
     reveal_time = endtime - starttime
+else:
+    starttime = time.time()
+    r_data_array = []
+    for msg in tqdm(reveal_messages, desc="Bulk REVEAL Progress"):
+        chunk = revealBulkData(endpointCRDP, msg, protectionPolicy, c_version, r_user)
+        r_data_array.extend(chunk)
+    endtime = time.time()
+    reveal_time = endtime - starttime
+
+r_data = r_data_array[0][CRDP_DATA_NAME]
+if len(payloadFile) > 0:
+    r_data = base64.b64decode(r_data)
+    p_data = f_content
 
 
 #####################################################################
@@ -447,10 +369,10 @@ else:
 #####################################################################
 print(colored("\n==================== CRDP Test Summary ====================", "white", attrs=["bold"]))
 
-if numTasks > 1:
+if numThreads > 1:
     # Parallel mode: use aggregated metrics for summary with load distribution
-    display_test_summary(protect_agg_metrics, data_size, "PROTECT", bulkFlag)
-    display_test_summary(reveal_agg_metrics, data_size, "REVEAL", bulkFlag)
+    display_test_summary(protect_agg_metrics, data_size, "PROTECT")
+    display_test_summary(reveal_agg_metrics, data_size, "REVEAL")
 else:
     # Sequential mode: display completion messages from saved timing
 
@@ -483,10 +405,9 @@ print(colored(outStr, "grey", attrs=["bold"]))
 # protected/tokenized equivalent.
 #####################################################################
 if csvListFile:
-    if bulkFlag:
-        protected_values = [item[CRDP_PROTECTED_DATA_NAME] for item in c_data_array]
-    else:
-        protected_values = c_data_list
+    # Only the first iteration's protected values feed the output file -
+    # subsequent iterations are duplicate stress passes over the same cells.
+    protected_values = [item[CRDP_PROTECTED_DATA_NAME] for item in c_data_array[:base_cell_count]]
 
     base, ext = os.path.splitext(csvListFile)
     protectedFile = base + "_protected" + ext

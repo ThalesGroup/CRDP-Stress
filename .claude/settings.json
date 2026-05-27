@@ -11,7 +11,12 @@
       "Bash(py -c \"import secrets; iv=secrets.token_bytes\\(28\\); print\\('hex:', iv.hex\\(\\)\\); print\\('len\\(bytes\\):', len\\(iv\\)\\); print\\('len\\(hexchars\\):', len\\(iv.hex\\(\\)\\)\\)\")",
       "WebFetch(domain:thalesdocs.com)",
       "WebFetch(domain:github.com)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(py -m py_compile CRDP_Stress.py parallel_execution.py CRDP_REST_API.py)",
+      "Bash(py CRDP_Stress.py -h)",
+      "Bash(git mv *)",
+      "Read(//c/c/Users/T0261255/Documents/PythonLab/**)",
+      "Read(//c/c/Users/T0261255/Documents/PythonLab/CRDP-Stress/**)"
     ]
   }
 }

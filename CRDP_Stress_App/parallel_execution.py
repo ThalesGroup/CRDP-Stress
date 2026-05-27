@@ -80,25 +80,25 @@ class AggregatedMetrics:
 
 # -------------------- Workload Distribution --------------------
 
-def distribute_workload(total_count, num_tasks):
+def distribute_workload(total_count, num_threads):
     """
-    Divide total_count into num_tasks chunks.
+    Divide total_count into num_threads chunks.
     Returns list of (start_index, count) tuples.
 
     Example: distribute_workload(1000, 3) -> [(0, 334), (334, 333), (667, 333)]
     """
-    if num_tasks <= 0:
-        raise ValueError("num_tasks must be > 0")
+    if num_threads <= 0:
+        raise ValueError("num_threads must be > 0")
     if total_count <= 0:
         raise ValueError("total_count must be > 0")
 
-    base_size = total_count // num_tasks
-    remainder = total_count % num_tasks
+    base_size = total_count // num_threads
+    remainder = total_count % num_threads
 
     workload = []
     current_start = 0
 
-    for i in range(num_tasks):
+    for i in range(num_threads):
         # Distribute remainder across first few tasks
         chunk_size = base_size + (1 if i < remainder else 0)
         workload.append((current_start, chunk_size))
@@ -109,7 +109,7 @@ def distribute_workload(total_count, num_tasks):
 
 # -------------------- Session-based API Wrappers --------------------
 
-def protectData_session(session, t_hostCRDP, t_data, t_protectionPolicy):
+def protectData_session(session, t_endpointCRDP, t_data, t_protectionPolicy):
     """
     Session-aware version of protectData.
     Uses provided session instead of creating new connection.
@@ -121,7 +121,7 @@ def protectData_session(session, t_hostCRDP, t_data, t_protectionPolicy):
         NET_TIMEOUT, STATUS_CODE_OK, kPrintError
     )
 
-    t_endpoint = "http://%s%s" % (t_hostCRDP, CRDP_PROTECT)
+    t_endpoint = "http://%s%s" % (t_endpointCRDP, CRDP_PROTECT)
     t_headers = {APP_CONTENT_TYPE: APP_JSON}
     t_dataStr = {
         CRDP_PROTECTION_POLICY_NAME: t_protectionPolicy,
@@ -147,7 +147,7 @@ def protectData_session(session, t_hostCRDP, t_data, t_protectionPolicy):
     return t_protectedData, t_version
 
 
-def protectBulkData_session(session, t_hostCRDP, t_dataArray, t_protectionPolicy):
+def protectBulkData_session(session, t_endpointCRDP, t_dataArray, t_protectionPolicy):
     """
     Session-aware version of protectBulkData.
     """
@@ -158,7 +158,7 @@ def protectBulkData_session(session, t_hostCRDP, t_dataArray, t_protectionPolicy
         NET_TIMEOUT, STATUS_CODE_OK, kPrintError
     )
 
-    t_endpoint = "http://%s%s" % (t_hostCRDP, CRDP_BULK_PROTECT)
+    t_endpoint = "http://%s%s" % (t_endpointCRDP, CRDP_BULK_PROTECT)
     t_headers = {APP_CONTENT_TYPE: APP_JSON}
     t_dataStr = {
         CRDP_PROTECTION_POLICY_NAME: t_protectionPolicy,
@@ -184,7 +184,7 @@ def protectBulkData_session(session, t_hostCRDP, t_dataArray, t_protectionPolicy
     return t_protectedData, t_version
 
 
-def revealData_session(session, t_hostCRDP, t_data, t_protectionPolicy, t_externalVersion, t_user):
+def revealData_session(session, t_endpointCRDP, t_data, t_protectionPolicy, t_externalVersion, t_user):
     """
     Session-aware version of revealData.
     """
@@ -195,7 +195,7 @@ def revealData_session(session, t_hostCRDP, t_data, t_protectionPolicy, t_extern
         NET_TIMEOUT, STATUS_CODE_OK, kPrintError
     )
 
-    t_endpoint = "http://%s%s" % (t_hostCRDP, CRDP_REVEAL)
+    t_endpoint = "http://%s%s" % (t_endpointCRDP, CRDP_REVEAL)
     t_headers = {APP_CONTENT_TYPE: APP_JSON}
     t_dataStr = {
         CRDP_PROTECTION_POLICY_NAME: t_protectionPolicy,
@@ -222,7 +222,7 @@ def revealData_session(session, t_hostCRDP, t_data, t_protectionPolicy, t_extern
     return t_revealedData
 
 
-def revealBulkData_session(session, t_hostCRDP, t_dataArray, t_protectionPolicy, t_externalVersion, t_user):
+def revealBulkData_session(session, t_endpointCRDP, t_dataArray, t_protectionPolicy, t_externalVersion, t_user):
     """
     Session-aware version of revealBulkData.
     """
@@ -233,7 +233,7 @@ def revealBulkData_session(session, t_hostCRDP, t_dataArray, t_protectionPolicy,
         NET_TIMEOUT, STATUS_CODE_OK, kPrintError
     )
 
-    t_endpoint = "http://%s%s" % (t_hostCRDP, CRDP_BULK_REVEAL)
+    t_endpoint = "http://%s%s" % (t_endpointCRDP, CRDP_BULK_REVEAL)
     t_headers = {APP_CONTENT_TYPE: APP_JSON}
     t_dataStr = {
         CRDP_PROTECTION_POLICY_NAME: t_protectionPolicy,
@@ -261,7 +261,7 @@ def revealBulkData_session(session, t_hostCRDP, t_dataArray, t_protectionPolicy,
 
 # -------------------- Worker Functions --------------------
 
-def worker_protect_discrete(task_id, start_idx, count, hostCRDP, p_data_array, protectionPolicy, collect_results, pbar, lock):
+def worker_protect_discrete(task_id, start_idx, count, endpointCRDP, p_data_array, protectionPolicy, collect_results, pbar, lock):
     """
     Worker function for discrete PROTECT operations.
     Each worker makes individual protectData calls for its assigned slice of
@@ -278,7 +278,7 @@ def worker_protect_discrete(task_id, start_idx, count, hostCRDP, p_data_array, p
 
     try:
         for i in range(count):
-            c_data, c_version = protectData_session(session, hostCRDP, p_data_array[start_idx + i], protectionPolicy)
+            c_data, c_version = protectData_session(session, endpointCRDP, p_data_array[start_idx + i], protectionPolicy)
             if collect_results:
                 c_data_list.append(c_data)
 
@@ -297,7 +297,7 @@ def worker_protect_discrete(task_id, start_idx, count, hostCRDP, p_data_array, p
     return metrics, (c_data_list if collect_results else c_data), c_version
 
 
-def worker_protect_bulk(task_id, data_chunk, hostCRDP, protectionPolicy, pbar, lock):
+def worker_protect_bulk(task_id, data_chunk, endpointCRDP, protectionPolicy, pbar, lock):
     """
     Worker function for bulk PROTECT operations.
     Each worker makes ONE protectBulkData call with its data chunk.
@@ -310,7 +310,7 @@ def worker_protect_bulk(task_id, data_chunk, hostCRDP, protectionPolicy, pbar, l
     c_version = None
 
     try:
-        c_data_array, c_version = protectBulkData_session(session, hostCRDP, data_chunk, protectionPolicy)
+        c_data_array, c_version = protectBulkData_session(session, endpointCRDP, data_chunk, protectionPolicy)
         metrics.items_processed = len(data_chunk)
 
         # Update progress bar once (bulk completes in one shot)
@@ -326,7 +326,7 @@ def worker_protect_bulk(task_id, data_chunk, hostCRDP, protectionPolicy, pbar, l
     return metrics, c_data_array, c_version
 
 
-def worker_reveal_discrete(task_id, start_idx, count, hostCRDP, c_data, protectionPolicy, c_version, r_user, pbar, lock):
+def worker_reveal_discrete(task_id, start_idx, count, endpointCRDP, c_data, protectionPolicy, c_version, r_user, pbar, lock):
     """
     Worker function for discrete REVEAL operations.
     """
@@ -338,7 +338,7 @@ def worker_reveal_discrete(task_id, start_idx, count, hostCRDP, c_data, protecti
 
     try:
         for i in range(count):
-            r_data = revealData_session(session, hostCRDP, c_data, protectionPolicy, c_version, r_user)
+            r_data = revealData_session(session, endpointCRDP, c_data, protectionPolicy, c_version, r_user)
 
             # Thread-safe progress update
             with lock:
@@ -355,7 +355,7 @@ def worker_reveal_discrete(task_id, start_idx, count, hostCRDP, c_data, protecti
     return metrics, r_data
 
 
-def worker_reveal_bulk(task_id, data_chunk, hostCRDP, protectionPolicy, c_version, r_user, pbar, lock):
+def worker_reveal_bulk(task_id, data_chunk, endpointCRDP, protectionPolicy, c_version, r_user, pbar, lock):
     """
     Worker function for bulk REVEAL operations.
     """
@@ -366,7 +366,7 @@ def worker_reveal_bulk(task_id, data_chunk, hostCRDP, protectionPolicy, c_versio
     r_data_array = None
 
     try:
-        r_data_array = revealBulkData_session(session, hostCRDP, data_chunk, protectionPolicy, c_version, r_user)
+        r_data_array = revealBulkData_session(session, endpointCRDP, data_chunk, protectionPolicy, c_version, r_user)
         metrics.items_processed = len(data_chunk)
 
         # Update progress bar once
@@ -384,14 +384,14 @@ def worker_reveal_bulk(task_id, data_chunk, hostCRDP, protectionPolicy, c_versio
 
 # -------------------- Orchestration Functions --------------------
 
-def execute_protect_parallel(workload, bulkFlag, hostCRDP, p_data, p_data_array, protectionPolicy, collect_results=False):
+def execute_protect_parallel(workload, bulkFlag, endpointCRDP, p_data, p_data_array, protectionPolicy, collect_results=False):
     """
     Execute parallel PROTECT operations using ThreadPoolExecutor.
 
     Args:
         workload: List of (start_idx, count) tuples from distribute_workload()
         bulkFlag: Boolean indicating bulk mode
-        hostCRDP: CRDP server hostname
+        endpointCRDP: CRDP server hostname
         p_data: Single plaintext data (unused; kept for signature compatibility)
         p_data_array: Array of plaintext data (one entry per item)
         protectionPolicy: Protection policy name
@@ -401,7 +401,7 @@ def execute_protect_parallel(workload, bulkFlag, hostCRDP, p_data, p_data_array,
     Returns:
         AggregatedMetrics, list of results, c_version
     """
-    num_tasks = len(workload)
+    num_threads = len(workload)
     total_items = sum(count for _, count in workload)
 
     # Create shared progress bar and lock
@@ -416,7 +416,7 @@ def execute_protect_parallel(workload, bulkFlag, hostCRDP, p_data, p_data_array,
     c_version = None
 
     with tqdm(total=total_items, desc=desc) as pbar:
-        with ThreadPoolExecutor(max_workers=num_tasks) as executor:
+        with ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = {}
 
             # Submit workers based on mode
@@ -426,7 +426,7 @@ def execute_protect_parallel(workload, bulkFlag, hostCRDP, p_data, p_data_array,
                     data_chunk = p_data_array[start_idx:start_idx + count]
                     future = executor.submit(
                         worker_protect_bulk,
-                        task_id, data_chunk, hostCRDP, protectionPolicy, pbar, progress_lock
+                        task_id, data_chunk, endpointCRDP, protectionPolicy, pbar, progress_lock
                     )
                     futures[future] = task_id
             else:
@@ -434,7 +434,7 @@ def execute_protect_parallel(workload, bulkFlag, hostCRDP, p_data, p_data_array,
                 for task_id, (start_idx, count) in enumerate(workload):
                     future = executor.submit(
                         worker_protect_discrete,
-                        task_id, start_idx, count, hostCRDP, p_data_array, protectionPolicy, collect_results, pbar, progress_lock
+                        task_id, start_idx, count, endpointCRDP, p_data_array, protectionPolicy, collect_results, pbar, progress_lock
                     )
                     futures[future] = task_id
 
@@ -455,14 +455,14 @@ def execute_protect_parallel(workload, bulkFlag, hostCRDP, p_data, p_data_array,
     return agg_metrics, results, c_version
 
 
-def execute_reveal_parallel(workload, bulkFlag, hostCRDP, c_data, c_data_array, protectionPolicy, c_version, r_user):
+def execute_reveal_parallel(workload, bulkFlag, endpointCRDP, c_data, c_data_array, protectionPolicy, c_version, r_user):
     """
     Execute parallel REVEAL operations using ThreadPoolExecutor.
 
     Args:
         workload: List of (start_idx, count) tuples from distribute_workload()
         bulkFlag: Boolean indicating bulk mode
-        hostCRDP: CRDP server hostname
+        endpointCRDP: CRDP server hostname
         c_data: Single ciphertext data (for discrete mode)
         c_data_array: Array of ciphertext data (for bulk mode)
         protectionPolicy: Protection policy name
@@ -472,7 +472,7 @@ def execute_reveal_parallel(workload, bulkFlag, hostCRDP, c_data, c_data_array, 
     Returns:
         AggregatedMetrics, list of results
     """
-    num_tasks = len(workload)
+    num_threads = len(workload)
     total_items = sum(count for _, count in workload)
 
     # Create shared progress bar and lock
@@ -486,7 +486,7 @@ def execute_reveal_parallel(workload, bulkFlag, hostCRDP, c_data, c_data_array, 
     results = []
 
     with tqdm(total=total_items, desc=desc) as pbar:
-        with ThreadPoolExecutor(max_workers=num_tasks) as executor:
+        with ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = {}
 
             # Submit workers based on mode
@@ -496,7 +496,7 @@ def execute_reveal_parallel(workload, bulkFlag, hostCRDP, c_data, c_data_array, 
                     data_chunk = c_data_array[start_idx:start_idx + count]
                     future = executor.submit(
                         worker_reveal_bulk,
-                        task_id, data_chunk, hostCRDP, protectionPolicy, c_version, r_user, pbar, progress_lock
+                        task_id, data_chunk, endpointCRDP, protectionPolicy, c_version, r_user, pbar, progress_lock
                     )
                     futures[future] = task_id
             else:
@@ -504,7 +504,7 @@ def execute_reveal_parallel(workload, bulkFlag, hostCRDP, c_data, c_data_array, 
                 for task_id, (start_idx, count) in enumerate(workload):
                     future = executor.submit(
                         worker_reveal_discrete,
-                        task_id, start_idx, count, hostCRDP, c_data, protectionPolicy, c_version, r_user, pbar, progress_lock
+                        task_id, start_idx, count, endpointCRDP, c_data, protectionPolicy, c_version, r_user, pbar, progress_lock
                     )
                     futures[future] = task_id
 
@@ -527,6 +527,198 @@ def execute_reveal_parallel(workload, bulkFlag, hostCRDP, c_data, c_data_array, 
     return agg_metrics, results
 
 
+def worker_protect_messages(task_id, indexed_messages, endpointCRDP, protectionPolicy, pbar, lock):
+    """
+    Worker that processes a list of bulk PROTECT messages.
+
+    indexed_messages: list of (msg_idx, payload_list) tuples, where each payload_list
+    is itself a list of plaintexts sent in a single bulk REST call. msg_idx is the
+    original message order index so the caller can reassemble results in order.
+
+    Returns metrics, list of (msg_idx, protected_chunk), c_version.
+    """
+    session = requests.Session()
+    metrics = WorkerMetrics(task_id)
+    metrics.start_time = time.time()
+
+    results = []
+    c_version = None
+    total_items = 0
+
+    try:
+        for msg_idx, payloads in indexed_messages:
+            c_data_array, version = protectBulkData_session(
+                session, endpointCRDP, payloads, protectionPolicy
+            )
+            results.append((msg_idx, c_data_array))
+            if c_version is None:
+                c_version = version
+            n = len(payloads)
+            total_items += n
+            with lock:
+                pbar.update(n)
+        metrics.items_processed = total_items
+    except Exception as e:
+        metrics.errors.append(str(e))
+        print(colored(f"\nWorker {task_id} error: {e}", "red"))
+    finally:
+        metrics.end_time = time.time()
+        session.close()
+
+    return metrics, results, c_version
+
+
+def worker_reveal_messages(task_id, indexed_messages, endpointCRDP, protectionPolicy, c_version, r_user, pbar, lock):
+    """
+    Worker that processes a list of bulk REVEAL messages.
+
+    indexed_messages: list of (msg_idx, ciphertext_list) tuples.
+    Returns metrics, list of (msg_idx, revealed_chunk).
+    """
+    session = requests.Session()
+    metrics = WorkerMetrics(task_id)
+    metrics.start_time = time.time()
+
+    results = []
+    total_items = 0
+
+    try:
+        for msg_idx, payloads in indexed_messages:
+            r_data_array = revealBulkData_session(
+                session, endpointCRDP, payloads, protectionPolicy, c_version, r_user
+            )
+            results.append((msg_idx, r_data_array))
+            n = len(payloads)
+            total_items += n
+            with lock:
+                pbar.update(n)
+        metrics.items_processed = total_items
+    except Exception as e:
+        metrics.errors.append(str(e))
+        print(colored(f"\nWorker {task_id} error: {e}", "red"))
+    finally:
+        metrics.end_time = time.time()
+        session.close()
+
+    return metrics, results
+
+
+def execute_protect_messages_parallel(messages, num_threads, endpointCRDP, protectionPolicy):
+    """
+    Execute parallel bulk PROTECT by distributing messages (round-robin) across workers.
+
+    Args:
+        messages: list of bulk-call payloads (each item is itself a list of plaintexts)
+        num_threads: number of worker threads
+        endpointCRDP: CRDP endpoint
+        protectionPolicy: protection policy name
+
+    Returns:
+        AggregatedMetrics, flat c_data_array (in original payload order), c_version
+    """
+    # Round-robin assignment of indexed messages to workers.
+    worker_messages = [[] for _ in range(num_threads)]
+    for i, msg in enumerate(messages):
+        worker_messages[i % num_threads].append((i, msg))
+
+    total_items = sum(len(m) for m in messages)
+    progress_lock = Lock()
+    agg_metrics = AggregatedMetrics()
+    agg_metrics.overall_start = time.time()
+
+    all_chunks = []
+    c_version = None
+
+    with tqdm(total=total_items, desc="Parallel PROTECT Progress") as pbar:
+        with ThreadPoolExecutor(max_workers=num_threads) as executor:
+            futures = {}
+            for task_id, msg_list in enumerate(worker_messages):
+                if not msg_list:
+                    continue
+                future = executor.submit(
+                    worker_protect_messages,
+                    task_id, msg_list, endpointCRDP, protectionPolicy, pbar, progress_lock,
+                )
+                futures[future] = task_id
+
+            for future in as_completed(futures):
+                task_id = futures[future]
+                try:
+                    metrics, chunks, version = future.result()
+                    all_chunks.extend(chunks)
+                    agg_metrics.add_worker_metrics(metrics)
+                    if c_version is None and version is not None:
+                        c_version = version
+                except Exception as e:
+                    print(colored(f"\nWorker {task_id} failed: {e}", "red"))
+
+    agg_metrics.overall_end = time.time()
+
+    all_chunks.sort(key=lambda x: x[0])
+    c_data_array = []
+    for _, chunk in all_chunks:
+        c_data_array.extend(chunk)
+
+    return agg_metrics, c_data_array, c_version
+
+
+def execute_reveal_messages_parallel(messages, num_threads, endpointCRDP, protectionPolicy, c_version, r_user):
+    """
+    Execute parallel bulk REVEAL by distributing messages (round-robin) across workers.
+
+    Args:
+        messages: list of bulk-call payloads (each item is itself a list of ciphertext dicts)
+        num_threads: number of worker threads
+        endpointCRDP: CRDP endpoint
+        protectionPolicy: protection policy name
+        c_version: external version (carried for API signature; per-item version is embedded)
+        r_user: username for reveal
+
+    Returns:
+        AggregatedMetrics, flat r_data_array (in original payload order)
+    """
+    worker_messages = [[] for _ in range(num_threads)]
+    for i, msg in enumerate(messages):
+        worker_messages[i % num_threads].append((i, msg))
+
+    total_items = sum(len(m) for m in messages)
+    progress_lock = Lock()
+    agg_metrics = AggregatedMetrics()
+    agg_metrics.overall_start = time.time()
+
+    all_chunks = []
+
+    with tqdm(total=total_items, desc="Parallel REVEAL Progress") as pbar:
+        with ThreadPoolExecutor(max_workers=num_threads) as executor:
+            futures = {}
+            for task_id, msg_list in enumerate(worker_messages):
+                if not msg_list:
+                    continue
+                future = executor.submit(
+                    worker_reveal_messages,
+                    task_id, msg_list, endpointCRDP, protectionPolicy, c_version, r_user, pbar, progress_lock,
+                )
+                futures[future] = task_id
+
+            for future in as_completed(futures):
+                task_id = futures[future]
+                try:
+                    metrics, chunks = future.result()
+                    all_chunks.extend(chunks)
+                    agg_metrics.add_worker_metrics(metrics)
+                except Exception as e:
+                    print(colored(f"\nWorker {task_id} failed: {e}", "red"))
+
+    agg_metrics.overall_end = time.time()
+
+    all_chunks.sort(key=lambda x: x[0])
+    r_data_array = []
+    for _, chunk in all_chunks:
+        r_data_array.extend(chunk)
+
+    return agg_metrics, r_data_array
+
+
 def display_worker_performance(agg_metrics, operation_name):
     """
     Display per-worker performance table for a single phase.
@@ -544,7 +736,7 @@ def display_worker_performance(agg_metrics, operation_name):
         print()
 
 
-def display_test_summary(agg_metrics, data_size, operation_name, bulkFlag):
+def display_test_summary(agg_metrics, data_size, operation_name):
     """
     Display test completion summary with load distribution for a single phase.
 
@@ -552,7 +744,6 @@ def display_test_summary(agg_metrics, data_size, operation_name, bulkFlag):
         agg_metrics: AggregatedMetrics object
         data_size: Total data size in bytes
         operation_name: "PROTECT" or "REVEAL"
-        bulkFlag: Boolean indicating bulk mode
     """
     overall_time = agg_metrics.overall_duration()
 
