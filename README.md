@@ -44,7 +44,7 @@ Usage:
                         clean multiple of batchsize.
 
 -charset (optional) - Character set used when random plaintext needs to be generated. Defaults to
-                      ALPHANUMERIC. **Ignored when `-payload` or `-csvlist` is supplied** since the
+                      DIGITSONLY. **Ignored when `-payload` or `-csvlist` is supplied** since the
                       plaintext comes from the file in those modes.
             ALPHANUMERIC - generate alphanumeric data
             DIGITSONLY - generate characters only using numeric digits (formatted like a credit card)

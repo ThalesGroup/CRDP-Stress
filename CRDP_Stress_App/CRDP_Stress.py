@@ -80,7 +80,7 @@ parser.add_argument("-charset", nargs=1, action="store", dest="charSetValue", re
                     choices=[charSet.alphanumeric.value,
                              charSet.digitsOnly.value,
                              charSet.printableascii.value],
-                    default=[charSet.alphanumeric.value],
+                    default=[charSet.digitsOnly.value],
                     help="Character set used when random plaintext needs to be generated (ignored when -payload or -csvlist is used)")
 
 args = parser.parse_args()
