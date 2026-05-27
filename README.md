@@ -26,7 +26,7 @@ Test_Data/            # Sample inputs for -payload / -csvlist
 Usage:
 **py CRDP_Stress.py [-h] -endpoint ENDPOINTCRDP -policy PROTECTIONPOLICY [-iterations ITERATIONS] -user USERNAME [-batchsize BATCHSIZE] [-charset {ALPHANUMERIC, DIGITSONLY, PRINTABLEASCII}] [-threads THREADCOUNT] [-payload FILENAME | -csvlist FILENAME]** where:
 
--endpoint ENDPOINTCRDP - The host name (or IP address) and port (optional) where CRDP is hosted. This is the value the deploy script exposes as `$CRDP_HOST` (auto-detected from the deploy host's primary IP unless overridden).
+-endpoint ENDPOINTCRDP - The host name (or IP address) and port (optional) where CRDP is hosted. Typically the value of `$CRDP_HOST` from the deploy script (defaults to `crdp.local`).
 
 -policy PROTECTIONPOLICY - The name of the Protection Policy that has been defined in CRDP. E.g., CRDP-DP-Policy1
 
@@ -119,39 +119,46 @@ The `CRDP_K8_Deployment/` folder contains Kubernetes manifests and a deployment 
 - **crdp-ingress.yml** — Ingress resource for host-based routing via the NGINX Ingress Controller. The `host:` field is templated as `${CRDP_HOST}` and filled in at apply time.
 - **makeSecretandDeploy.sh** — Deployment script that:
   1. Creates the `crdp-secret-name` Kubernetes secret from the CRDP App registration token.
-  2. Applies the Deployment and Service from crdp-app-svc-ing.yml (substituting `KEY_MANAGER_HOST`).
-  3. Enables the MicroK8s NGINX Ingress Controller addon if it is not already deployed.
-  4. Patches the Ingress Controller DaemonSet to use `hostNetwork=true` if needed (required on MicroK8s v1.33.9 where the addon does not set this by default).
+  2. Ensures the NGINX Ingress Controller is installed — installs it from the official manifest (`ingress-nginx` v1.11.2, bare-metal variant) if absent, and patches it for `hostNetwork=true` so it binds to port 80. Aborts on any install failure.
+  3. Ensures `/etc/hosts` on this host maps `$CRDP_HOST` to the host's primary IP (adds the line via `sudo` if missing).
+  4. Applies the Deployment and Service from crdp-app-svc-ing.yml (substituting `KEY_MANAGER_HOST`).
   5. Applies the Ingress resource from crdp-ingress.yml (substituting `CRDP_HOST`).
 
 **Configuration — Environment Variables:**
 
-The deploy script reads three environment variables. If any is unset it will prompt or auto-detect, as noted below. The script uses `envsubst` (from `gettext`) to inject these values into the YAMLs at apply time, so `envsubst` must be installed (`sudo apt install gettext-base` on Debian/Ubuntu).
+The deploy script reads three environment variables. If any is unset it will prompt or default, as noted below. The script uses `envsubst` (from `gettext`) to inject these values into the YAMLs at apply time, so `envsubst` must be installed (`sudo apt install gettext-base` on Debian/Ubuntu).
 
 | Variable | Purpose | Behavior if unset |
 |---|---|---|
-| `REG_TOKEN_VALUE` | CRDP App Registration Token from CipherTrust Manager. Treat as a credential — do **not** commit it to source control. | **Silent prompt** (input is not echoed to the terminal). Aborts if empty. |
+| `REG_TOKEN_VALUE` | CRDP App Registration Token from CipherTrust Manager. Treat as a credential — do **not** commit it to source control. | **Silent prompt** (input is not echoed). Aborts if empty. |
 | `KEY_MANAGER_HOST` | IP or FQDN of the CipherTrust Manager that CRDP pods register against. Lands in the `KEY_MANAGER_HOST` env of every CRDP pod. | **Echoed prompt.** Aborts if empty. |
-| `CRDP_HOST` | The hostname or IP clients use to reach CRDP. Lands in the Ingress `host:` field; clients must send `Host: $CRDP_HOST` (browsers and `curl` do this automatically). | **Auto-detected** from the primary IP of the host running the script (`hostname -I | awk '{print $1}'`). Echoed back so you can confirm. Override by exporting `CRDP_HOST` before running. |
+| `CRDP_HOST` | Hostname (FQDN) clients use to reach CRDP. Lands in the Ingress `host:` field. **Must be a hostname**, not an IP — the Kubernetes API rejects IP addresses in `host:` at admission. | **Defaults to `crdp.local`.** Echoed back so you can confirm. Override by exporting `CRDP_HOST=<your-fqdn>` before running. |
 
 > Where to get `REG_TOKEN_VALUE`: in CipherTrust Manager, open the CRDP App registration and copy the registration token.
 
 **To deploy:**
 
-1. Optionally export any of the three env vars beforehand (especially useful for unattended runs):
+1. Optionally export any env var beforehand (especially useful for unattended runs):
    ```bash
    export REG_TOKEN_VALUE=<token-from-CipherTrust-Manager>
    export KEY_MANAGER_HOST=<ciphertrust-manager-ip-or-fqdn>
-   export CRDP_HOST=<override-the-auto-detected-host>   # optional
+   export CRDP_HOST=<your-fqdn>   # optional; defaults to crdp.local
    ```
 2. Run the script from the deployment folder (it references the YAMLs by relative path):
    ```bash
    cd CRDP_K8_Deployment
    ./makeSecretandDeploy.sh
    ```
-   The script prints the final URL (`http://$CRDP_HOST`) and a ready-to-use stress-test command.
-3. If `CRDP_HOST` is an FQDN, map it to one or more node IPs in DNS or `/etc/hosts` on every client. For round-robin DNS across multiple nodes, add several IP→hostname lines under the same hostname. (Skip this step if `CRDP_HOST` is an IP address.) NGINX always load-balances across all CRDP backend pods regardless of which node the request enters on.
+   You may be prompted for your sudo password (used only to append the `$CRDP_HOST` entry to `/etc/hosts` if not already present). The script prints the final URL (`http://$CRDP_HOST`) and a ready-to-use stress-test command at the end.
+3. **For other clients** — the script only updates `/etc/hosts` on the host where it runs. To call CRDP from any other client, add the same line on that client (or set up DNS):
+   ```
+   <deploy-host-ip>  crdp.local
+   ```
+
+**About the NGINX Ingress Controller:**
+
+The script uses the upstream `ingress-nginx` project (`kubernetes/ingress-nginx`), not the MicroK8s `ingress` addon — on recent MicroK8s versions that addon installs Traefik instead, which has a different IngressClass and configuration. If NGINX is already installed (detected by the presence of an `IngressClass` named `nginx`), the script skips the install and proceeds directly to applying the manifests.
 
 **Alternative: NodePort-only access (no Ingress):**
 
-If you do not want the Ingress, CRDP is still reachable directly via the NodePort service at `http://<any-node-ip>:32085`. To use this path, comment out the final `envsubst < crdp-ingress.yml | microk8s kubectl apply -f -` line in `makeSecretandDeploy.sh`.
+If you do not want the Ingress (e.g. you want to reach CRDP by IP directly), CRDP is still exposed as a NodePort service at `http://<any-node-ip>:32085`. To use this path, comment out the final `envsubst < crdp-ingress.yml | microk8s kubectl apply -f -` line in `makeSecretandDeploy.sh` and skip the `/etc/hosts` step.

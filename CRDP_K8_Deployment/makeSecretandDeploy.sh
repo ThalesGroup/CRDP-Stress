@@ -1,27 +1,37 @@
 #!/bin/bash
 #
-# Deploys CRDP to MicroK8s:
+# Deploys CRDP to MicroK8s. The script:
 #   1. Creates the crdp-secret-name Kubernetes secret from the CRDP App
 #      Registration Token issued by CipherTrust Manager.
 #   2. Applies the CRDP Deployment + Service (crdp-app-svc-ing.yml) after
 #      substituting KEY_MANAGER_HOST.
-#   3. Ensures the NGINX Ingress Controller is running with hostNetwork=true.
-#   4. Applies the Ingress (crdp-ingress.yml) after substituting CRDP_HOST.
+#   3. Ensures the NGINX Ingress Controller is installed (installs it from the
+#      official manifest if absent; aborts on any failure).
+#   4. Ensures /etc/hosts on this host maps $CRDP_HOST to the host's primary IP.
+#   5. Applies the Ingress (crdp-ingress.yml) after substituting CRDP_HOST.
 #
-# Environment variables consumed (the script prompts or auto-detects if unset):
+# Environment variables consumed (the script prompts or defaults if unset):
 #   REG_TOKEN_VALUE   - CRDP App Registration Token from CipherTrust Manager.
-#                       Prompted for (silently) if not set.
-#   KEY_MANAGER_HOST  - IP or FQDN of the CipherTrust Manager.
-#                       Prompted for if not set.
-#   CRDP_HOST         - Hostname/IP clients use to reach CRDP (lands in the
-#                       Ingress 'host:' field). Auto-detected from the local
-#                       machine's primary IP if not set.
+#                       Prompted for silently if not set.
+#   KEY_MANAGER_HOST  - IP or FQDN of CipherTrust Manager. Prompted if not set.
+#   CRDP_HOST         - Hostname (FQDN) clients use to reach CRDP. Defaults to
+#                       'crdp.local' if not set. MUST be a hostname, not an IP
+#                       (Kubernetes Ingress rejects IPs in the 'host:' field).
 
-# envsubst (from gettext) is required for variable substitution into the YAMLs.
+set -o pipefail
+
+# ----- Pre-flight: required tools -----
 if ! command -v envsubst >/dev/null 2>&1; then
     echo "ERROR: envsubst is required but not installed." >&2
     echo "       On Debian/Ubuntu: sudo apt install gettext-base" >&2
     exit 1
+fi
+
+# Use sudo only when not already root.
+if [ "$(id -u)" = "0" ]; then
+    SUDO=""
+else
+    SUDO="sudo"
 fi
 
 # ----- REG_TOKEN_VALUE (silent prompt; it is a credential) -----
@@ -45,66 +55,115 @@ if [ -z "$KEY_MANAGER_HOST" ]; then
     export KEY_MANAGER_HOST
 fi
 
-# ----- CRDP_HOST (auto-detect from this machine's primary IP) -----
+# ----- CRDP_HOST (default to crdp.local) -----
 if [ -z "$CRDP_HOST" ]; then
-    CRDP_HOST=$(hostname -I 2>/dev/null | awk '{print $1}')
-    if [ -z "$CRDP_HOST" ]; then
-        echo "ERROR: Could not auto-detect a host IP for CRDP_HOST." >&2
-        echo "       Set CRDP_HOST manually (export CRDP_HOST=<ip-or-fqdn>) and re-run." >&2
-        exit 1
-    fi
-    echo "Auto-detected CRDP_HOST=$CRDP_HOST  (override by exporting CRDP_HOST before running)"
-    export CRDP_HOST
+    CRDP_HOST="crdp.local"
+    echo "CRDP_HOST not set; using default: $CRDP_HOST"
+    echo "  (override by exporting CRDP_HOST=<your-fqdn> before running)"
+fi
+export CRDP_HOST
+
+# Detect this host's primary IP for the /etc/hosts mapping below.
+HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+if [ -z "$HOST_IP" ]; then
+    echo "ERROR: Could not detect this host's primary IP (hostname -I returned nothing)." >&2
+    echo "       Set the /etc/hosts mapping for $CRDP_HOST manually and re-run." >&2
+    exit 1
 fi
 
 echo
 echo "Using:"
 echo "  KEY_MANAGER_HOST = $KEY_MANAGER_HOST"
-echo "  CRDP_HOST        = $CRDP_HOST"
+echo "  CRDP_HOST        = $CRDP_HOST  (will map to $HOST_IP in /etc/hosts)"
 echo
 
-# Delete any existing secret, then (re)create it from the registration token.
+# ----- Ensure /etc/hosts maps $CRDP_HOST -> $HOST_IP on this host -----
+# Find an existing mapping for $CRDP_HOST in /etc/hosts (skipping comment lines).
+EXISTING_IP=$(awk -v h="$CRDP_HOST" '
+    !/^[[:space:]]*#/ {
+        for (i = 2; i <= NF; i++) {
+            if ($i == h) { print $1; exit }
+        }
+    }
+' /etc/hosts)
+
+if [ -n "$EXISTING_IP" ]; then
+    if [ "$EXISTING_IP" = "$HOST_IP" ]; then
+        echo "/etc/hosts: $CRDP_HOST -> $HOST_IP already present."
+    else
+        echo "WARNING: /etc/hosts already maps $CRDP_HOST -> $EXISTING_IP (expected $HOST_IP)."
+        echo "         Leaving existing entry alone. Edit /etc/hosts manually if it should change."
+    fi
+else
+    echo "Adding '$HOST_IP $CRDP_HOST' to /etc/hosts (sudo may prompt)..."
+    if ! echo "$HOST_IP $CRDP_HOST" | $SUDO tee -a /etc/hosts >/dev/null; then
+        echo "ERROR: Failed to update /etc/hosts." >&2
+        exit 1
+    fi
+    echo "/etc/hosts updated."
+fi
+
+# ----- Ensure the NGINX Ingress Controller is installed -----
+# Detection: presence of the 'nginx' IngressClass is the authoritative signal.
+NGINX_MANIFEST="https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.2/deploy/static/provider/baremetal/deploy.yaml"
+
+if microk8s kubectl get ingressclass nginx >/dev/null 2>&1; then
+    echo "NGINX Ingress Controller is already installed (IngressClass 'nginx' present)."
+else
+    echo "NGINX Ingress Controller not found. Installing from the official manifest..."
+    echo "  $NGINX_MANIFEST"
+    if ! microk8s kubectl apply -f "$NGINX_MANIFEST"; then
+        echo "ERROR: kubectl apply failed for the NGINX manifest. Aborting." >&2
+        exit 1
+    fi
+
+    echo "Waiting for the NGINX controller pod to become ready (timeout 180s)..."
+    if ! microk8s kubectl wait --namespace ingress-nginx \
+            --for=condition=ready pod \
+            --selector=app.kubernetes.io/component=controller \
+            --timeout=180s; then
+        echo "ERROR: NGINX controller pod did not become ready within 180s. Aborting." >&2
+        exit 1
+    fi
+
+    # Patch the controller Deployment to use hostNetwork so it binds directly to
+    # the node's port 80. Without this the controller listens only on a NodePort.
+    echo "Patching NGINX controller Deployment to use hostNetwork=true..."
+    if ! microk8s kubectl patch deployment ingress-nginx-controller -n ingress-nginx \
+            --type='json' \
+            -p='[{"op":"add","path":"/spec/template/spec/hostNetwork","value":true},
+                 {"op":"add","path":"/spec/template/spec/dnsPolicy","value":"ClusterFirstWithHostNet"}]'; then
+        echo "ERROR: Failed to patch NGINX controller for hostNetwork. Aborting." >&2
+        exit 1
+    fi
+
+    echo "Waiting for NGINX controller rollout after hostNetwork patch (timeout 180s)..."
+    if ! microk8s kubectl rollout status deployment/ingress-nginx-controller \
+            -n ingress-nginx --timeout=180s; then
+        echo "ERROR: NGINX controller rollout did not complete within 180s. Aborting." >&2
+        exit 1
+    fi
+
+    # Final sanity check.
+    if ! microk8s kubectl get ingressclass nginx >/dev/null 2>&1; then
+        echo "ERROR: NGINX install completed but IngressClass 'nginx' is still missing. Aborting." >&2
+        exit 1
+    fi
+
+    echo "NGINX Ingress Controller installed and ready."
+fi
+
+# ----- Create / refresh the registration-token secret -----
 microk8s kubectl delete secret crdp-secret-name --ignore-not-found
 microk8s kubectl create secret generic crdp-secret-name --from-literal=regtoken="$REG_TOKEN_VALUE"
 
-# Apply the CRDP Deployment + Service, substituting KEY_MANAGER_HOST.
+# ----- Apply the CRDP workload (Deployment + Service) -----
 envsubst < crdp-app-svc-ing.yml | microk8s kubectl apply -f -
 
-# Ensure the NGINX Ingress Controller is deployed before applying the Ingress resource.
-# The MicroK8s ingress addon installs a DaemonSet named "nginx-ingress-microk8s-controller"
-# in the "ingress" namespace; use its presence as the readiness signal.
-if microk8s kubectl get daemonset nginx-ingress-microk8s-controller -n ingress >/dev/null 2>&1; then
-    echo "NGINX Ingress Controller is already deployed."
-else
-    echo "NGINX Ingress Controller not found. Enabling MicroK8s ingress addon..."
-    microk8s enable ingress
-    echo "Waiting for Ingress Controller pods to become ready..."
-    microk8s kubectl rollout status daemonset/nginx-ingress-microk8s-controller -n ingress --timeout=120s
-fi
-
-# On some MicroK8s versions (observed on v1.33.9) the ingress addon does NOT set
-# hostNetwork=true on the controller DaemonSet, so the controller never binds to the
-# node's physical interface on ports 80/443 and is unreachable from outside the cluster.
-# Detect that case and patch the DaemonSet so the controller listens directly on each
-# node's IP. Safe to re-run: patching when hostNetwork is already true is a no-op.
-HOST_NETWORK=$(microk8s kubectl get daemonset nginx-ingress-microk8s-controller -n ingress \
-    -o jsonpath='{.spec.template.spec.hostNetwork}' 2>/dev/null)
-if [ "$HOST_NETWORK" != "true" ]; then
-    echo "Patching Ingress Controller DaemonSet to use hostNetwork=true..."
-    microk8s kubectl patch daemonset nginx-ingress-microk8s-controller -n ingress \
-        --type='json' \
-        -p='[{"op":"add","path":"/spec/template/spec/hostNetwork","value":true},
-             {"op":"add","path":"/spec/template/spec/dnsPolicy","value":"ClusterFirstWithHostNet"}]'
-    echo "Waiting for Ingress Controller rollout after hostNetwork patch..."
-    microk8s kubectl rollout status daemonset/nginx-ingress-microk8s-controller -n ingress --timeout=120s
-else
-    echo "Ingress Controller already running with hostNetwork=true."
-fi
-
-# Apply the Ingress resource for load-balanced host-based routing.
+# ----- Apply the Ingress -----
 envsubst < crdp-ingress.yml | microk8s kubectl apply -f -
 
-# ----- Final note for the operator -----
+# ----- Final summary for the operator -----
 echo
 echo "=============================================================="
 echo "Deployment complete. CRDP is reachable at:"
@@ -116,9 +175,10 @@ echo "    python3 CRDP_Stress.py -endpoint $CRDP_HOST -policy <name> -user <name
 echo "=============================================================="
 echo
 echo "Notes:"
+echo " - On THIS host, $CRDP_HOST -> $HOST_IP is set in /etc/hosts."
+echo " - To call CRDP from OTHER hosts, add the same line to their /etc/hosts"
+echo "   (or to your DNS):"
+echo "     $HOST_IP $CRDP_HOST"
 echo " - The CRDP Service is also exposed as a NodePort at <any-node-ip>:32085"
-echo "   (skip the Ingress entirely by commenting out the final 'envsubst < crdp-ingress.yml' line)."
-echo " - Clients reaching CRDP via the Ingress must send Host: $CRDP_HOST."
-echo "   If CRDP_HOST is an FQDN, map it to a node IP in DNS or /etc/hosts on the client."
-echo " - For round-robin client distribution across multiple ingress nodes, map several"
-echo "   node IPs to the same hostname (DNS or /etc/hosts)."
+echo "   (bypass the Ingress entirely by commenting out the final"
+echo "   'envsubst < crdp-ingress.yml' line above)."
