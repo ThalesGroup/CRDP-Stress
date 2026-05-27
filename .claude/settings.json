@@ -23,7 +23,8 @@
       "Bash(git fetch *)",
       "Bash(git rev-list *)",
       "Bash(git push *)",
-      "Bash(bash -n CRDP_K8_Deployment/makeSecretandDeploy.sh)"
+      "Bash(bash -n CRDP_K8_Deployment/makeSecretandDeploy.sh)",
+      "Bash(git branch *)"
     ]
   }
 }
