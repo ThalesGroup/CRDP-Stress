@@ -16,7 +16,10 @@
       "Bash(py CRDP_Stress.py -h)",
       "Bash(git mv *)",
       "Read(//c/c/Users/T0261255/Documents/PythonLab/**)",
-      "Read(//c/c/Users/T0261255/Documents/PythonLab/CRDP-Stress/**)"
+      "Read(//c/c/Users/T0261255/Documents/PythonLab/CRDP-Stress/**)",
+      "Bash(git merge *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }
