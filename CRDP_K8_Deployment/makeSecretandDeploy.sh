@@ -117,12 +117,15 @@ else
         exit 1
     fi
 
-    echo "Waiting for the NGINX controller pod to become ready (timeout 180s)..."
-    if ! microk8s kubectl wait --namespace ingress-nginx \
-            --for=condition=ready pod \
-            --selector=app.kubernetes.io/component=controller \
-            --timeout=180s; then
-        echo "ERROR: NGINX controller pod did not become ready within 180s. Aborting." >&2
+    # Wait for the controller Deployment to finish its initial rollout.
+    # Using 'rollout status' instead of 'kubectl wait --for=ready pod' because
+    # the pods may not exist immediately after the manifest is applied (kubectl
+    # wait fails with "no matching resources found" in that brief gap).
+    echo "Waiting for the NGINX controller Deployment to roll out (timeout 300s)..."
+    if ! microk8s kubectl rollout status deployment/ingress-nginx-controller \
+            -n ingress-nginx --timeout=300s; then
+        echo "ERROR: NGINX controller Deployment did not roll out within 300s. Aborting." >&2
+        echo "       Investigate with: microk8s kubectl get pods -n ingress-nginx" >&2
         exit 1
     fi
 
