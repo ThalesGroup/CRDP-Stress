@@ -24,7 +24,8 @@
       "Bash(git rev-list *)",
       "Bash(git push *)",
       "Bash(bash -n CRDP_K8_Deployment/makeSecretandDeploy.sh)",
-      "Bash(git branch *)"
+      "Bash(git branch *)",
+      "Bash(KEY_MANAGER_HOST=\"10.0.0.5\" CRDP_HOST=\"192.168.1.100\" envsubst)"
     ]
   }
 }
