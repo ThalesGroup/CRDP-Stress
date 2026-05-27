@@ -5,8 +5,18 @@
 # workload is deployed from crdp-app-svc-ing.yml and load-balanced host-based routing is
 # deployed from crdp-ingress.yml (the default configuration).
 
-# Replace the regtoken value below with the one from CM for the CRDP App
-export REG_TOKEN_VALUE=v8Eg0jXcq3mGNkFHlvDnavAGFBO5qY7P4WfZmiAD5MOtR90NmRzrpgUL4OrKxlFf
+# REG_TOKEN_VALUE is the CRDP App Registration Token from CipherTrust Manager.
+# Set it in your environment beforehand (e.g. export REG_TOKEN_VALUE=...) or this
+# script will prompt for it interactively.
+if [ -z "$REG_TOKEN_VALUE" ]; then
+    read -rsp "Enter the CRDP App Registration Token from CipherTrust Manager: " REG_TOKEN_VALUE
+    echo
+    if [ -z "$REG_TOKEN_VALUE" ]; then
+        echo "ERROR: No registration token provided. Aborting." >&2
+        exit 1
+    fi
+    export REG_TOKEN_VALUE
+fi
 
 # delete any existing value for crdp-secret-name
 microk8s kubectl delete secret crdp-secret-name

@@ -124,9 +124,21 @@ The `CRDP_K8_Deployment/` folder contains Kubernetes manifests and a deployment 
   4. Patches the Ingress Controller DaemonSet to use `hostNetwork=true` if needed (required on MicroK8s v1.33.9 where the addon does not set this by default).
   5. Applies the Ingress resource from crdp-ingress.yml for load-balanced routing.
 
+**Configuration — `REG_TOKEN_VALUE`:**
+
+The deploy script needs the **CRDP App Registration Token** issued by CipherTrust Manager. It looks for this token in the environment variable `REG_TOKEN_VALUE`. There are two ways to provide it:
+
+- **Export before running** (preferred for unattended runs / CI):
+  ```bash
+  export REG_TOKEN_VALUE=<token-from-CipherTrust-Manager>
+  ```
+- **Interactive prompt** — if `REG_TOKEN_VALUE` is not set, the script will prompt for it. Input is silenced (the token does not echo to the terminal); the script aborts with an error if nothing is entered.
+
+> Where to get the token: in CipherTrust Manager, open the CRDP App registration and copy the registration token. Treat it like a credential — anyone who has it can register a CRDP instance against your CipherTrust Manager. Do **not** commit it to source control.
+
 **To deploy:**
 
-1. Edit `CRDP_K8_Deployment/makeSecretandDeploy.sh` and replace the `REG_TOKEN_VALUE` with the registration token from CipherTrust Manager for the CRDP App.
+1. Make `REG_TOKEN_VALUE` available (see Configuration above) — either export it, or be ready to paste it at the prompt.
 2. Run the script from the deployment folder (it references the YAMLs by relative path):
    ```bash
    cd CRDP_K8_Deployment
