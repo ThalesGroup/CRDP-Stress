@@ -1,13 +1,30 @@
 #!/bin/bash
 #
-# Small script file that derives a crdp-secret-name from the CRDP App Registration Token on CM
-# and saves it under the environmental variable "crdp-secret-name". Once defined, the Kubernetes
-# workload is deployed from crdp-app-svc-ing.yml and load-balanced host-based routing is
-# deployed from crdp-ingress.yml (the default configuration).
+# Deploys CRDP to MicroK8s:
+#   1. Creates the crdp-secret-name Kubernetes secret from the CRDP App
+#      Registration Token issued by CipherTrust Manager.
+#   2. Applies the CRDP Deployment + Service (crdp-app-svc-ing.yml) after
+#      substituting KEY_MANAGER_HOST.
+#   3. Ensures the NGINX Ingress Controller is running with hostNetwork=true.
+#   4. Applies the Ingress (crdp-ingress.yml) after substituting CRDP_HOST.
+#
+# Environment variables consumed (the script prompts or auto-detects if unset):
+#   REG_TOKEN_VALUE   - CRDP App Registration Token from CipherTrust Manager.
+#                       Prompted for (silently) if not set.
+#   KEY_MANAGER_HOST  - IP or FQDN of the CipherTrust Manager.
+#                       Prompted for if not set.
+#   CRDP_HOST         - Hostname/IP clients use to reach CRDP (lands in the
+#                       Ingress 'host:' field). Auto-detected from the local
+#                       machine's primary IP if not set.
 
-# REG_TOKEN_VALUE is the CRDP App Registration Token from CipherTrust Manager.
-# Set it in your environment beforehand (e.g. export REG_TOKEN_VALUE=...) or this
-# script will prompt for it interactively.
+# envsubst (from gettext) is required for variable substitution into the YAMLs.
+if ! command -v envsubst >/dev/null 2>&1; then
+    echo "ERROR: envsubst is required but not installed." >&2
+    echo "       On Debian/Ubuntu: sudo apt install gettext-base" >&2
+    exit 1
+fi
+
+# ----- REG_TOKEN_VALUE (silent prompt; it is a credential) -----
 if [ -z "$REG_TOKEN_VALUE" ]; then
     read -rsp "Enter the CRDP App Registration Token from CipherTrust Manager: " REG_TOKEN_VALUE
     echo
@@ -18,14 +35,40 @@ if [ -z "$REG_TOKEN_VALUE" ]; then
     export REG_TOKEN_VALUE
 fi
 
-# delete any existing value for crdp-secret-name
-microk8s kubectl delete secret crdp-secret-name
+# ----- KEY_MANAGER_HOST (echoed prompt; not sensitive) -----
+if [ -z "$KEY_MANAGER_HOST" ]; then
+    read -rp "Enter the IP address or FQDN of the CipherTrust Manager: " KEY_MANAGER_HOST
+    if [ -z "$KEY_MANAGER_HOST" ]; then
+        echo "ERROR: No CipherTrust Manager host provided. Aborting." >&2
+        exit 1
+    fi
+    export KEY_MANAGER_HOST
+fi
 
-# create (or recreate) secret
-microk8s kubectl create secret generic crdp-secret-name --from-literal=regtoken=$REG_TOKEN_VALUE
+# ----- CRDP_HOST (auto-detect from this machine's primary IP) -----
+if [ -z "$CRDP_HOST" ]; then
+    CRDP_HOST=$(hostname -I 2>/dev/null | awk '{print $1}')
+    if [ -z "$CRDP_HOST" ]; then
+        echo "ERROR: Could not auto-detect a host IP for CRDP_HOST." >&2
+        echo "       Set CRDP_HOST manually (export CRDP_HOST=<ip-or-fqdn>) and re-run." >&2
+        exit 1
+    fi
+    echo "Auto-detected CRDP_HOST=$CRDP_HOST  (override by exporting CRDP_HOST before running)"
+    export CRDP_HOST
+fi
 
-# Deploy Kubernetes workload (Deployment + Service)
-microk8s kubectl apply -f crdp-app-svc-ing.yml
+echo
+echo "Using:"
+echo "  KEY_MANAGER_HOST = $KEY_MANAGER_HOST"
+echo "  CRDP_HOST        = $CRDP_HOST"
+echo
+
+# Delete any existing secret, then (re)create it from the registration token.
+microk8s kubectl delete secret crdp-secret-name --ignore-not-found
+microk8s kubectl create secret generic crdp-secret-name --from-literal=regtoken="$REG_TOKEN_VALUE"
+
+# Apply the CRDP Deployment + Service, substituting KEY_MANAGER_HOST.
+envsubst < crdp-app-svc-ing.yml | microk8s kubectl apply -f -
 
 # Ensure the NGINX Ingress Controller is deployed before applying the Ingress resource.
 # The MicroK8s ingress addon installs a DaemonSet named "nginx-ingress-microk8s-controller"
@@ -58,45 +101,24 @@ else
     echo "Ingress Controller already running with hostNetwork=true."
 fi
 
-# Deploy Ingress resource for load-balanced host-based routing (default configuration)
-microk8s kubectl apply -f crdp-ingress.yml
+# Apply the Ingress resource for load-balanced host-based routing.
+envsubst < crdp-ingress.yml | microk8s kubectl apply -f -
 
-# ============================================================================
-# Default Configuration: Load-Balanced Ingress (NGINX Ingress Controller)
-# ============================================================================
-# The default deployment exposes CRDP via host-based routing at crdp.test256.io using
-# the NGINX Ingress Controller. MetalLB is NOT required. Note that the MicroK8s ingress
-# addon does NOT set hostNetwork=true on the controller DaemonSet by default (observed
-# on MicroK8s v1.33.9), so the script above patches the DaemonSet to enable hostNetwork.
-# Once patched, the controller binds directly to ports 80/443 on each node's physical
-# IP, and NGINX load-balances requests across all CRDP backend pods.
-#
-# The script above automatically:
-#   - Enables the MicroK8s ingress addon if it is not already deployed
-#   - Patches the controller DaemonSet to use hostNetwork=true if it is not already set
-#   - Waits for the rollout to complete before applying the Ingress resource
-# No manual ingress-addon setup is required.
-#
-# Manual prerequisite:
-#
-#   Map crdp.test256.io to one or more of your MicroK8s node IPs in DNS or /etc/hosts
-#   on every client that will call CRDP. In this environment the node IPs are:
-#     192.168.1.187  (sphere)
-#     192.168.1.188  (kube)
-#   For a single-node mapping:
-#     192.168.1.188  crdp.test256.io
-#   For round-robin DNS across both nodes (distributes client connections between both
-#   ingress controller pods for Layer-1 load balancing), add both entries under the
-#   same hostname in DNS, or add both lines to /etc/hosts:
-#     192.168.1.188  crdp.test256.io
-#     192.168.1.187  crdp.test256.io
-#   NGINX will always load-balance across all CRDP backend pods regardless of which
-#   node the request enters on.
-#
-# ============================================================================
-# Alternative: NodePort-Only Access (no Ingress)
-# ============================================================================
-# If you do not want (or cannot enable) the NGINX Ingress Controller, you can reach
-# CRDP directly via the NodePort service defined in crdp-app-svc-ing.yml at:
-#        http://<any-node-ip>:32085
-# To use this path, comment out the "kubectl apply -f crdp-ingress.yml" line above.
+# ----- Final note for the operator -----
+echo
+echo "=============================================================="
+echo "Deployment complete. CRDP is reachable at:"
+echo "    http://$CRDP_HOST"
+echo
+echo "Use this value with the stress test:"
+echo "    cd ../CRDP_Stress_App"
+echo "    python3 CRDP_Stress.py -endpoint $CRDP_HOST -policy <name> -user <name>"
+echo "=============================================================="
+echo
+echo "Notes:"
+echo " - The CRDP Service is also exposed as a NodePort at <any-node-ip>:32085"
+echo "   (skip the Ingress entirely by commenting out the final 'envsubst < crdp-ingress.yml' line)."
+echo " - Clients reaching CRDP via the Ingress must send Host: $CRDP_HOST."
+echo "   If CRDP_HOST is an FQDN, map it to a node IP in DNS or /etc/hosts on the client."
+echo " - For round-robin client distribution across multiple ingress nodes, map several"
+echo "   node IPs to the same hostname (DNS or /etc/hosts)."

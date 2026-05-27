@@ -22,7 +22,7 @@ spec:
           name: crdp-image
           env:
             - name: KEY_MANAGER_HOST
-              value: "192.168.1.190"
+              value: "${KEY_MANAGER_HOST}"
             - name: SERVER_MODE
               value: "no-tls"
             - name: REGISTRATION_TOKEN
@@ -62,7 +62,7 @@ spec:
 # Default (load-balanced) access:
 #   The default deployment path in makeSecretandDeploy.sh applies crdp-ingress.yml, which
 #   exposes CRDP via host-based routing through the NGINX Ingress Controller at:
-#     http://crdp.test256.io
+#     http://$CRDP_HOST   (auto-detected by the deploy script; see README "Configuration")
 #   The Service above remains type: NodePort so that both the Ingress path and the direct
 #   NodePort fallback can coexist without modification.
 #

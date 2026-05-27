@@ -26,7 +26,7 @@ Test_Data/            # Sample inputs for -payload / -csvlist
 Usage:
 **py CRDP_Stress.py [-h] -endpoint ENDPOINTCRDP -policy PROTECTIONPOLICY [-iterations ITERATIONS] -user USERNAME [-batchsize BATCHSIZE] [-charset {ALPHANUMERIC, DIGITSONLY, PRINTABLEASCII}] [-threads THREADCOUNT] [-payload FILENAME | -csvlist FILENAME]** where:
 
--endpoint ENDPOINTCRDP - The host name (or IP address) and port (optional) where CRDP is hosted.  E.g., crdp.test256.io
+-endpoint ENDPOINTCRDP - The host name (or IP address) and port (optional) where CRDP is hosted. This is the value the deploy script exposes as `$CRDP_HOST` (auto-detected from the deploy host's primary IP unless overridden).
 
 -policy PROTECTIONPOLICY - The name of the Protection Policy that has been defined in CRDP. E.g., CRDP-DP-Policy1
 
@@ -90,25 +90,25 @@ If the message count is smaller than the thread count, the thread count is autom
 
 **Examples:**
 
-Run from the `CRDP_Stress_App/` folder. Test files live in `../Test_Data/`.
+Run from the `CRDP_Stress_App/` folder. Test files live in `../Test_Data/`. The examples below pass `$CRDP_HOST` for `-endpoint` — that variable is set by `makeSecretandDeploy.sh` in the same shell session, or you can export it manually (`export CRDP_HOST=<your-crdp-ip-or-fqdn>`) before running.
 
 ```bash
 cd CRDP_Stress_App
 
 # Stress test with random data: 10,000 payloads in messages of 100, across 100 parallel workers
-python3 CRDP_Stress.py -endpoint crdp.test256.io -policy MyPolicy -user alice -iterations 10000 -batchsize 100 -threads 100
+python3 CRDP_Stress.py -endpoint $CRDP_HOST -policy MyPolicy -user alice -iterations 10000 -batchsize 100 -threads 100
 
 # File stress test: 1000 copies of the image, 10 messages of 100 copies each, one per worker
-python3 CRDP_Stress.py -endpoint crdp.test256.io -policy MyPolicy -user alice -payload ../Test_Data/RAM_Image.jpg -iterations 1000 -batchsize 100 -threads 10
+python3 CRDP_Stress.py -endpoint $CRDP_HOST -policy MyPolicy -user alice -payload ../Test_Data/RAM_Image.jpg -iterations 1000 -batchsize 100 -threads 10
 
 # File stress test (one payload per call): 200 messages, 50 workers (~4 messages each)
-python3 CRDP_Stress.py -endpoint crdp.test256.io -policy MyPolicy -user alice -payload ../Test_Data/RAM_Image.jpg -iterations 200 -batchsize 1 -threads 50
+python3 CRDP_Stress.py -endpoint $CRDP_HOST -policy MyPolicy -user alice -payload ../Test_Data/RAM_Image.jpg -iterations 200 -batchsize 1 -threads 50
 
 # Quick file test: one call total
-python3 CRDP_Stress.py -endpoint crdp.test256.io -policy MyPolicy -user alice -payload ../Test_Data/RAM_Image.jpg
+python3 CRDP_Stress.py -endpoint $CRDP_HOST -policy MyPolicy -user alice -payload ../Test_Data/RAM_Image.jpg
 
 # CSV list: protect every cell of testpatterns.csv (messages of 50), write testpatterns_protected.csv
-python3 CRDP_Stress.py -endpoint crdp.test256.io -policy MyPolicy -user alice -csvlist ../Test_Data/testpatterns.csv -batchsize 50 -threads 10
+python3 CRDP_Stress.py -endpoint $CRDP_HOST -policy MyPolicy -user alice -csvlist ../Test_Data/testpatterns.csv -batchsize 50 -threads 10
 ```
 
 **Kubernetes Deployment**
@@ -116,41 +116,42 @@ python3 CRDP_Stress.py -endpoint crdp.test256.io -policy MyPolicy -user alice -c
 The `CRDP_K8_Deployment/` folder contains Kubernetes manifests and a deployment script for running CRDP across a multi-node, multi-pod MicroK8s cluster:
 
 - **crdp-app-svc-ing.yml** — Deployment (6 replicas) and NodePort Service for CRDP.
-- **crdp-ingress.yml** — Ingress resource for host-based routing via the NGINX Ingress Controller at crdp.test256.io.
+- **crdp-ingress.yml** — Ingress resource for host-based routing via the NGINX Ingress Controller. The `host:` field is templated as `${CRDP_HOST}` and filled in at apply time.
 - **makeSecretandDeploy.sh** — Deployment script that:
   1. Creates the `crdp-secret-name` Kubernetes secret from the CRDP App registration token.
-  2. Applies the Deployment and Service from crdp-app-svc-ing.yml.
+  2. Applies the Deployment and Service from crdp-app-svc-ing.yml (substituting `KEY_MANAGER_HOST`).
   3. Enables the MicroK8s NGINX Ingress Controller addon if it is not already deployed.
   4. Patches the Ingress Controller DaemonSet to use `hostNetwork=true` if needed (required on MicroK8s v1.33.9 where the addon does not set this by default).
-  5. Applies the Ingress resource from crdp-ingress.yml for load-balanced routing.
+  5. Applies the Ingress resource from crdp-ingress.yml (substituting `CRDP_HOST`).
 
-**Configuration — `REG_TOKEN_VALUE`:**
+**Configuration — Environment Variables:**
 
-The deploy script needs the **CRDP App Registration Token** issued by CipherTrust Manager. It looks for this token in the environment variable `REG_TOKEN_VALUE`. There are two ways to provide it:
+The deploy script reads three environment variables. If any is unset it will prompt or auto-detect, as noted below. The script uses `envsubst` (from `gettext`) to inject these values into the YAMLs at apply time, so `envsubst` must be installed (`sudo apt install gettext-base` on Debian/Ubuntu).
 
-- **Export before running** (preferred for unattended runs / CI):
-  ```bash
-  export REG_TOKEN_VALUE=<token-from-CipherTrust-Manager>
-  ```
-- **Interactive prompt** — if `REG_TOKEN_VALUE` is not set, the script will prompt for it. Input is silenced (the token does not echo to the terminal); the script aborts with an error if nothing is entered.
+| Variable | Purpose | Behavior if unset |
+|---|---|---|
+| `REG_TOKEN_VALUE` | CRDP App Registration Token from CipherTrust Manager. Treat as a credential — do **not** commit it to source control. | **Silent prompt** (input is not echoed to the terminal). Aborts if empty. |
+| `KEY_MANAGER_HOST` | IP or FQDN of the CipherTrust Manager that CRDP pods register against. Lands in the `KEY_MANAGER_HOST` env of every CRDP pod. | **Echoed prompt.** Aborts if empty. |
+| `CRDP_HOST` | The hostname or IP clients use to reach CRDP. Lands in the Ingress `host:` field; clients must send `Host: $CRDP_HOST` (browsers and `curl` do this automatically). | **Auto-detected** from the primary IP of the host running the script (`hostname -I | awk '{print $1}'`). Echoed back so you can confirm. Override by exporting `CRDP_HOST` before running. |
 
-> Where to get the token: in CipherTrust Manager, open the CRDP App registration and copy the registration token. Treat it like a credential — anyone who has it can register a CRDP instance against your CipherTrust Manager. Do **not** commit it to source control.
+> Where to get `REG_TOKEN_VALUE`: in CipherTrust Manager, open the CRDP App registration and copy the registration token.
 
 **To deploy:**
 
-1. Make `REG_TOKEN_VALUE` available (see Configuration above) — either export it, or be ready to paste it at the prompt.
+1. Optionally export any of the three env vars beforehand (especially useful for unattended runs):
+   ```bash
+   export REG_TOKEN_VALUE=<token-from-CipherTrust-Manager>
+   export KEY_MANAGER_HOST=<ciphertrust-manager-ip-or-fqdn>
+   export CRDP_HOST=<override-the-auto-detected-host>   # optional
+   ```
 2. Run the script from the deployment folder (it references the YAMLs by relative path):
    ```bash
    cd CRDP_K8_Deployment
    ./makeSecretandDeploy.sh
    ```
-3. On each client machine, map `crdp.test256.io` to one or more node IPs in DNS or `/etc/hosts`:
-   ```
-   192.168.1.188  crdp.test256.io
-   192.168.1.187  crdp.test256.io
-   ```
-   Adding both node IPs provides round-robin DNS for client-to-ingress load distribution. NGINX always load-balances across all CRDP backend pods regardless of which node the request enters on.
+   The script prints the final URL (`http://$CRDP_HOST`) and a ready-to-use stress-test command.
+3. If `CRDP_HOST` is an FQDN, map it to one or more node IPs in DNS or `/etc/hosts` on every client. For round-robin DNS across multiple nodes, add several IP→hostname lines under the same hostname. (Skip this step if `CRDP_HOST` is an IP address.) NGINX always load-balances across all CRDP backend pods regardless of which node the request enters on.
 
 **Alternative: NodePort-only access (no Ingress):**
 
-If the Ingress Controller is not available, CRDP is still reachable directly via the NodePort service at `http://<any-node-ip>:32085`. To use this path, comment out the `kubectl apply -f crdp-ingress.yml` line in makeSecretandDeploy.sh.
+If you do not want the Ingress, CRDP is still reachable directly via the NodePort service at `http://<any-node-ip>:32085`. To use this path, comment out the final `envsubst < crdp-ingress.yml | microk8s kubectl apply -f -` line in `makeSecretandDeploy.sh`.
