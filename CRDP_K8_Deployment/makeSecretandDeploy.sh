@@ -13,7 +13,10 @@
 # Environment variables consumed (the script prompts or defaults if unset):
 #   REG_TOKEN_VALUE   - CRDP App Registration Token from CipherTrust Manager.
 #                       Prompted for silently if not set.
-#   KEY_MANAGER_HOST  - IP or FQDN of CipherTrust Manager. Prompted if not set.
+#   KEY_MANAGER_HOST  - IPv4 address of CipherTrust Manager. MUST be an IP, not
+#                       an FQDN: CRDP pods resolve this via cluster DNS, which
+#                       does not consult the node's /etc/hosts. If unset or set
+#                       to a non-IP value, the script prompts for an IP.
 #   CRDP_HOST         - Hostname (FQDN) clients use to reach CRDP. Defaults to
 #                       'crdp.local' if not set. MUST be a hostname, not an IP
 #                       (Kubernetes Ingress rejects IPs in the 'host:' field).
@@ -45,15 +48,37 @@ if [ -z "$REG_TOKEN_VALUE" ]; then
     export REG_TOKEN_VALUE
 fi
 
-# ----- KEY_MANAGER_HOST (echoed prompt; not sensitive) -----
-if [ -z "$KEY_MANAGER_HOST" ]; then
-    read -rp "Enter the IP address or FQDN of the CipherTrust Manager: " KEY_MANAGER_HOST
-    if [ -z "$KEY_MANAGER_HOST" ]; then
-        echo "ERROR: No CipherTrust Manager host provided. Aborting." >&2
-        exit 1
-    fi
-    export KEY_MANAGER_HOST
+# ----- KEY_MANAGER_HOST (must be an IPv4 address) -----
+# CRDP pods resolve KEY_MANAGER_HOST through cluster DNS (CoreDNS), which does
+# not see the node's /etc/hosts. An FQDN that only resolves locally on the node
+# will cause the pod to CrashLoopBackOff with "no such host". Require an IP.
+is_ipv4() {
+    local ip=$1 oct
+    [[ $ip =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || return 1
+    for oct in "${BASH_REMATCH[@]:1}"; do
+        (( oct <= 255 )) || return 1
+    done
+    return 0
+}
+
+if [ -n "$KEY_MANAGER_HOST" ] && ! is_ipv4 "$KEY_MANAGER_HOST"; then
+    echo "KEY_MANAGER_HOST is set to '$KEY_MANAGER_HOST', which is not an IPv4 address."
+    echo "  CRDP pods cannot resolve FQDNs from the node's /etc/hosts; an IP is required."
+    KEY_MANAGER_HOST=""
 fi
+
+while [ -z "$KEY_MANAGER_HOST" ]; do
+    read -rp "Enter the IPv4 address of the CipherTrust Manager (not an FQDN): " KEY_MANAGER_HOST
+    if [ -z "$KEY_MANAGER_HOST" ]; then
+        echo "ERROR: No CipherTrust Manager IP provided." >&2
+        continue
+    fi
+    if ! is_ipv4 "$KEY_MANAGER_HOST"; then
+        echo "ERROR: '$KEY_MANAGER_HOST' is not a valid IPv4 address. Enter an IP, not an FQDN." >&2
+        KEY_MANAGER_HOST=""
+    fi
+done
+export KEY_MANAGER_HOST
 
 # ----- CRDP_HOST (default to crdp.local) -----
 if [ -z "$CRDP_HOST" ]; then
