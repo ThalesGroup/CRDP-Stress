@@ -60,8 +60,10 @@ def protectData(t_endpointCRDP, t_data, t_protectionPolicy):
         exit()
 
     # Extract the UserAuthId from the value of the key-value pair of the JSON reponse.
-    t_protectedData = r.json()[CRDP_PROTECTED_DATA_NAME]
-    t_version = r.json()[CRDP_EXTERNAL_VER_NAME]
+    # external_version is optional - policies that do not use key rotation omit it.
+    t_json = r.json()
+    t_protectedData = t_json[CRDP_PROTECTED_DATA_NAME]
+    t_version = t_json.get(CRDP_EXTERNAL_VER_NAME)
 
     return t_protectedData, t_version
 
@@ -123,8 +125,10 @@ def protectBulkData(t_endpointCRDP, t_dataArray, t_protectionPolicy):
         exit()
 
     # Extract the UserAuthId from the value of the key-value pair of the JSON reponse.
+    # external_version is optional - policies that do not use key rotation omit it
+    # from the per-item entries in protected_data_array.
     t_protectedData = r.json()[CRDP_PROTECTED_DATA_ARRAY_NAME]
-    t_version = r.json()[CRDP_PROTECTED_DATA_ARRAY_NAME][0][CRDP_EXTERNAL_VER_NAME]
+    t_version = t_protectedData[0].get(CRDP_EXTERNAL_VER_NAME) if t_protectedData else None
 
     return t_protectedData, t_version
 
@@ -141,10 +145,12 @@ def revealData(t_endpointCRDP, t_data, t_protectionPolicy, t_externalVersion, t_
     t_headers = {APP_CONTENT_TYPE: APP_JSON}
     t_dataStr = {
         CRDP_PROTECTION_POLICY_NAME: t_protectionPolicy,
-        CRDP_EXTERNAL_VER_NAME: t_externalVersion,
         CRDP_USERNAME_NAME: t_user,
         CRDP_PROTECTED_DATA_NAME: t_data,
     }
+    # Only include external_version when the policy actually returned one on protect.
+    if t_externalVersion is not None:
+        t_dataStr[CRDP_EXTERNAL_VER_NAME] = t_externalVersion
 
     # Now that everything is populated, assemble and post command
     try:

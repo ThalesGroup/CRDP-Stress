@@ -27,7 +27,9 @@
       "Bash(git branch *)",
       "Bash(KEY_MANAGER_HOST=\"10.0.0.5\" CRDP_HOST=\"192.168.1.100\" envsubst)",
       "Bash(bash -n CRDP_K8_Deployment/deleteAndVerifyCRDP-K8.sh)",
-      "Bash(chmod +x CRDP_K8_Deployment/deleteAndVerifyCRDP-K8.sh)"
+      "Bash(chmod +x CRDP_K8_Deployment/deleteAndVerifyCRDP-K8.sh)",
+      "Bash(python -m py_compile CRDP_Stress_App/CRDP_REST_API.py)",
+      "Bash(python -m py_compile CRDP_Stress_App/parallel_execution.py)"
     ]
   }
 }

@@ -141,8 +141,10 @@ def protectData_session(session, t_endpointCRDP, t_data, t_protectionPolicy):
         kPrintError("protectData_session", r)
         raise Exception(f"HTTP {r.status_code}")
 
-    t_protectedData = r.json()[CRDP_PROTECTED_DATA_NAME]
-    t_version = r.json()[CRDP_EXTERNAL_VER_NAME]
+    # external_version is optional - policies without key rotation omit it.
+    t_json = r.json()
+    t_protectedData = t_json[CRDP_PROTECTED_DATA_NAME]
+    t_version = t_json.get(CRDP_EXTERNAL_VER_NAME)
 
     return t_protectedData, t_version
 
@@ -178,8 +180,10 @@ def protectBulkData_session(session, t_endpointCRDP, t_dataArray, t_protectionPo
         kPrintError("protectBulkData_session", r)
         raise Exception(f"HTTP {r.status_code}")
 
+    # external_version is optional - policies without key rotation omit it from
+    # the per-item entries in protected_data_array.
     t_protectedData = r.json()[CRDP_PROTECTED_DATA_ARRAY_NAME]
-    t_version = r.json()[CRDP_PROTECTED_DATA_ARRAY_NAME][0][CRDP_EXTERNAL_VER_NAME]
+    t_version = t_protectedData[0].get(CRDP_EXTERNAL_VER_NAME) if t_protectedData else None
 
     return t_protectedData, t_version
 
@@ -199,10 +203,12 @@ def revealData_session(session, t_endpointCRDP, t_data, t_protectionPolicy, t_ex
     t_headers = {APP_CONTENT_TYPE: APP_JSON}
     t_dataStr = {
         CRDP_PROTECTION_POLICY_NAME: t_protectionPolicy,
-        CRDP_EXTERNAL_VER_NAME: t_externalVersion,
         CRDP_USERNAME_NAME: t_user,
         CRDP_PROTECTED_DATA_NAME: t_data,
     }
+    # Only include external_version when the policy actually returned one on protect.
+    if t_externalVersion is not None:
+        t_dataStr[CRDP_EXTERNAL_VER_NAME] = t_externalVersion
 
     try:
         r = session.post(
