@@ -1,6 +1,7 @@
 #!/bin/bash
 #
-# Deploys CRDP to MicroK8s. The script:
+# Deploys CRDP to MicroK8s (default) or to a standard Kubernetes cluster via
+# plain kubectl. The script:
 #   1. Creates the crdp-secret-name Kubernetes secret from the CRDP App
 #      Registration Token issued by CipherTrust Manager.
 #   2. Applies the CRDP Deployment + Service (crdp-app-svc-ing.yml) after
@@ -9,6 +10,12 @@
 #      official manifest if absent; aborts on any failure).
 #   4. Ensures /etc/hosts on this host maps $CRDP_HOST to the host's primary IP.
 #   5. Applies the Ingress (crdp-ingress.yml) after substituting CRDP_HOST.
+#
+# Flags:
+#   --no-microk8s, -k   Use plain 'kubectl' instead of 'microk8s kubectl' for
+#                       every cluster operation. Use this when targeting a
+#                       standard Kubernetes cluster (kubeadm, k3s, EKS, etc.).
+#   --help, -h          Show usage and exit.
 #
 # Environment variables consumed (the script prompts or defaults if unset):
 #   REG_TOKEN_VALUE   - CRDP App Registration Token from CipherTrust Manager.
@@ -23,12 +30,49 @@
 
 set -o pipefail
 
+# ----- Parse flags -----
+USE_MICROK8S=1
+for arg in "$@"; do
+    case "$arg" in
+        --no-microk8s|-k)
+            USE_MICROK8S=0
+            ;;
+        --help|-h)
+            sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        *)
+            echo "ERROR: Unknown argument '$arg'. Use --help for usage." >&2
+            exit 1
+            ;;
+    esac
+done
+
 # ----- Pre-flight: required tools -----
 if ! command -v envsubst >/dev/null 2>&1; then
     echo "ERROR: envsubst is required but not installed." >&2
     echo "       On Debian/Ubuntu: sudo apt install gettext-base" >&2
     exit 1
 fi
+
+# Resolve the kubectl command once. With --no-microk8s the script calls plain
+# 'kubectl'; otherwise it calls '$KUBECTL'. KUBECTL is intentionally
+# unquoted at call sites so that '$KUBECTL' splits into two argv tokens.
+if [ "$USE_MICROK8S" -eq 1 ]; then
+    if ! command -v microk8s >/dev/null 2>&1; then
+        echo "ERROR: 'microk8s' not found on PATH." >&2
+        echo "       Re-run with --no-microk8s to use a standard kubectl." >&2
+        exit 1
+    fi
+    KUBECTL="$KUBECTL"
+else
+    if ! command -v kubectl >/dev/null 2>&1; then
+        echo "ERROR: 'kubectl' not found on PATH (required for --no-microk8s)." >&2
+        exit 1
+    fi
+    KUBECTL="kubectl"
+fi
+echo "Using kubectl command: $KUBECTL"
 
 # Use sudo only when not already root.
 if [ "$(id -u)" = "0" ]; then
@@ -132,12 +176,12 @@ fi
 # Detection: presence of the 'nginx' IngressClass is the authoritative signal.
 NGINX_MANIFEST="https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.2/deploy/static/provider/baremetal/deploy.yaml"
 
-if microk8s kubectl get ingressclass nginx >/dev/null 2>&1; then
+if $KUBECTL get ingressclass nginx >/dev/null 2>&1; then
     echo "NGINX Ingress Controller is already installed (IngressClass 'nginx' present)."
 else
     echo "NGINX Ingress Controller not found. Installing from the official manifest..."
     echo "  $NGINX_MANIFEST"
-    if ! microk8s kubectl apply -f "$NGINX_MANIFEST"; then
+    if ! $KUBECTL apply -f "$NGINX_MANIFEST"; then
         echo "ERROR: kubectl apply failed for the NGINX manifest. Aborting." >&2
         exit 1
     fi
@@ -147,17 +191,17 @@ else
     # the pods may not exist immediately after the manifest is applied (kubectl
     # wait fails with "no matching resources found" in that brief gap).
     echo "Waiting for the NGINX controller Deployment to roll out (timeout 300s)..."
-    if ! microk8s kubectl rollout status deployment/ingress-nginx-controller \
+    if ! $KUBECTL rollout status deployment/ingress-nginx-controller \
             -n ingress-nginx --timeout=300s; then
         echo "ERROR: NGINX controller Deployment did not roll out within 300s. Aborting." >&2
-        echo "       Investigate with: microk8s kubectl get pods -n ingress-nginx" >&2
+        echo "       Investigate with: $KUBECTL get pods -n ingress-nginx" >&2
         exit 1
     fi
 
     # Patch the controller Deployment to use hostNetwork so it binds directly to
     # the node's port 80. Without this the controller listens only on a NodePort.
     echo "Patching NGINX controller Deployment to use hostNetwork=true..."
-    if ! microk8s kubectl patch deployment ingress-nginx-controller -n ingress-nginx \
+    if ! $KUBECTL patch deployment ingress-nginx-controller -n ingress-nginx \
             --type='json' \
             -p='[{"op":"add","path":"/spec/template/spec/hostNetwork","value":true},
                  {"op":"add","path":"/spec/template/spec/dnsPolicy","value":"ClusterFirstWithHostNet"}]'; then
@@ -166,14 +210,14 @@ else
     fi
 
     echo "Waiting for NGINX controller rollout after hostNetwork patch (timeout 180s)..."
-    if ! microk8s kubectl rollout status deployment/ingress-nginx-controller \
+    if ! $KUBECTL rollout status deployment/ingress-nginx-controller \
             -n ingress-nginx --timeout=180s; then
         echo "ERROR: NGINX controller rollout did not complete within 180s. Aborting." >&2
         exit 1
     fi
 
     # Final sanity check.
-    if ! microk8s kubectl get ingressclass nginx >/dev/null 2>&1; then
+    if ! $KUBECTL get ingressclass nginx >/dev/null 2>&1; then
         echo "ERROR: NGINX install completed but IngressClass 'nginx' is still missing. Aborting." >&2
         exit 1
     fi
@@ -182,14 +226,14 @@ else
 fi
 
 # ----- Create / refresh the registration-token secret -----
-microk8s kubectl delete secret crdp-secret-name --ignore-not-found
-microk8s kubectl create secret generic crdp-secret-name --from-literal=regtoken="$REG_TOKEN_VALUE"
+$KUBECTL delete secret crdp-secret-name --ignore-not-found
+$KUBECTL create secret generic crdp-secret-name --from-literal=regtoken="$REG_TOKEN_VALUE"
 
 # ----- Apply the CRDP workload (Deployment + Service) -----
-envsubst < crdp-app-svc-ing.yml | microk8s kubectl apply -f -
+envsubst < crdp-app-svc-ing.yml | $KUBECTL apply -f -
 
 # ----- Apply the Ingress -----
-envsubst < crdp-ingress.yml | microk8s kubectl apply -f -
+envsubst < crdp-ingress.yml | $KUBECTL apply -f -
 
 # ----- Final summary for the operator -----
 echo
