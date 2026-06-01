@@ -82,10 +82,9 @@ else
     SUDO="sudo"
 fi
 
-# ----- REG_TOKEN_VALUE (silent prompt; it is a credential) -----
+# ----- REG_TOKEN_VALUE (visible prompt) -----
 if [ -z "$REG_TOKEN_VALUE" ]; then
-    read -rsp "Enter the CRDP App Registration Token from CipherTrust Manager: " REG_TOKEN_VALUE
-    echo
+    read -rp "Enter the CRDP App Registration Token from CipherTrust Manager: " REG_TOKEN_VALUE
     if [ -z "$REG_TOKEN_VALUE" ]; then
         echo "ERROR: No registration token provided. Aborting." >&2
         exit 1
