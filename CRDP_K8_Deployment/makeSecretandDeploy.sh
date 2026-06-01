@@ -1,7 +1,7 @@
 #!/bin/bash
 #
-# Deploys CRDP to MicroK8s (default) or to a standard Kubernetes cluster via
-# plain kubectl. The script:
+# Deploys CRDP to a standard Kubernetes cluster (default) or to MicroK8s.
+# The script:
 #   1. Creates the crdp-secret-name Kubernetes secret from the CRDP App
 #      Registration Token issued by CipherTrust Manager.
 #   2. Applies the CRDP Deployment + Service (crdp-app-svc-ing.yml) after
@@ -12,9 +12,9 @@
 #   5. Applies the Ingress (crdp-ingress.yml) after substituting CRDP_HOST.
 #
 # Flags:
-#   --no-microk8s, -k   Use plain 'kubectl' instead of 'microk8s kubectl' for
+#   --microk8s, -m      Use 'microk8s kubectl' instead of plain 'kubectl' for
 #                       every cluster operation. Use this when targeting a
-#                       standard Kubernetes cluster (kubeadm, k3s, EKS, etc.).
+#                       MicroK8s installation.
 #   --help, -h          Show usage and exit.
 #
 # Environment variables consumed (the script prompts or defaults if unset):
@@ -31,11 +31,11 @@
 set -o pipefail
 
 # ----- Parse flags -----
-USE_MICROK8S=1
+USE_MICROK8S=0
 for arg in "$@"; do
     case "$arg" in
-        --no-microk8s|-k)
-            USE_MICROK8S=0
+        --microk8s|-m)
+            USE_MICROK8S=1
             ;;
         --help|-h)
             sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
@@ -55,19 +55,20 @@ if ! command -v envsubst >/dev/null 2>&1; then
     exit 1
 fi
 
-# Resolve the kubectl command once. With --no-microk8s the script calls plain
-# 'kubectl'; otherwise it calls '$KUBECTL'. KUBECTL is intentionally
-# unquoted at call sites so that '$KUBECTL' splits into two argv tokens.
+# Resolve the kubectl command once. By default the script calls plain
+# 'kubectl'; with --microk8s it calls 'microk8s kubectl'. KUBECTL is
+# intentionally unquoted at call sites so 'microk8s kubectl' splits into
+# two argv tokens.
 if [ "$USE_MICROK8S" -eq 1 ]; then
     if ! command -v microk8s >/dev/null 2>&1; then
-        echo "ERROR: 'microk8s' not found on PATH." >&2
-        echo "       Re-run with --no-microk8s to use a standard kubectl." >&2
+        echo "ERROR: 'microk8s' not found on PATH (required for --microk8s)." >&2
         exit 1
     fi
-    KUBECTL="$KUBECTL"
+    KUBECTL="microk8s kubectl"
 else
     if ! command -v kubectl >/dev/null 2>&1; then
-        echo "ERROR: 'kubectl' not found on PATH (required for --no-microk8s)." >&2
+        echo "ERROR: 'kubectl' not found on PATH." >&2
+        echo "       Re-run with --microk8s if targeting a MicroK8s install." >&2
         exit 1
     fi
     KUBECTL="kubectl"
