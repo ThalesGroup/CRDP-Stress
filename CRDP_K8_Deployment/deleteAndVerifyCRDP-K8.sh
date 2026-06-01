@@ -13,22 +13,66 @@
 #   - The /etc/hosts entry for $CRDP_HOST
 #   - MicroK8s itself, Calico CNI, CoreDNS
 #
+# Flags:
+#   --microk8s, -m      Use 'microk8s kubectl' instead of plain 'kubectl' for
+#                       every cluster operation. Use this when targeting a
+#                       MicroK8s installation.
+#   --help, -h          Show usage and exit.
+#
 # Exits 0 if every CRDP resource is verified gone; exits 1 otherwise.
 
 set -o pipefail
 
+# ----- Parse flags -----
+USE_MICROK8S=0
+for arg in "$@"; do
+    case "$arg" in
+        --microk8s|-m)
+            USE_MICROK8S=1
+            ;;
+        --help|-h)
+            sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        *)
+            echo "ERROR: Unknown argument '$arg'. Use --help for usage." >&2
+            exit 1
+            ;;
+    esac
+done
+
+# Resolve the kubectl command once. By default the script calls plain
+# 'kubectl'; with --microk8s it calls 'microk8s kubectl'. KUBECTL is
+# intentionally unquoted at call sites so 'microk8s kubectl' splits into
+# two argv tokens.
+if [ "$USE_MICROK8S" -eq 1 ]; then
+    if ! command -v microk8s >/dev/null 2>&1; then
+        echo "ERROR: 'microk8s' not found on PATH (required for --microk8s)." >&2
+        exit 1
+    fi
+    KUBECTL="microk8s kubectl"
+else
+    if ! command -v kubectl >/dev/null 2>&1; then
+        echo "ERROR: 'kubectl' not found on PATH." >&2
+        echo "       Re-run with --microk8s if targeting a MicroK8s install." >&2
+        exit 1
+    fi
+    KUBECTL="kubectl"
+fi
+echo "Using kubectl command: $KUBECTL"
+
 echo "Deleting CRDP resources from the default namespace..."
-microk8s kubectl delete ingress    crdp-ingress     --ignore-not-found
-microk8s kubectl delete deployment crdp-deployment  --ignore-not-found
-microk8s kubectl delete service    crdp-service     --ignore-not-found
-microk8s kubectl delete secret     crdp-secret-name --ignore-not-found
+$KUBECTL delete ingress    crdp-ingress     --ignore-not-found
+$KUBECTL delete deployment crdp-deployment  --ignore-not-found
+$KUBECTL delete service    crdp-service     --ignore-not-found
+$KUBECTL delete secret     crdp-secret-name --ignore-not-found
 
 # Pods are owned by the Deployment; they enter Terminating state when the
 # Deployment is removed and usually disappear within a few seconds. Wait briefly
 # so the verification step reflects steady state.
 echo
 echo "Waiting for any CRDP pods to terminate (up to 60s)..."
-microk8s kubectl wait --for=delete pod -l run=crdp --timeout=60s 2>/dev/null || true
+$KUBECTL wait --for=delete pod -l run=crdp --timeout=60s 2>/dev/null || true
 
 echo
 echo "Verifying cleanup..."
@@ -37,7 +81,7 @@ failures=0
 
 check() {
     # $1 = resource kind, $2 = resource name
-    if microk8s kubectl get "$1" "$2" >/dev/null 2>&1; then
+    if $KUBECTL get "$1" "$2" >/dev/null 2>&1; then
         echo "  FAIL: $1/$2 still exists"
         failures=$((failures + 1))
     else
@@ -51,12 +95,12 @@ check service    crdp-service
 check secret     crdp-secret-name
 
 # Pods carry the label 'run=crdp' (the Deployment selector); confirm none remain.
-remaining_pods=$(microk8s kubectl get pods -l run=crdp -o name 2>/dev/null | wc -l)
+remaining_pods=$($KUBECTL get pods -l run=crdp -o name 2>/dev/null | wc -l)
 if [ "$remaining_pods" -eq 0 ]; then
     echo "  OK:   no CRDP pods remain"
 else
     echo "  FAIL: $remaining_pods CRDP pod(s) still present:"
-    microk8s kubectl get pods -l run=crdp
+    $KUBECTL get pods -l run=crdp
     failures=$((failures + 1))
 fi
 
@@ -68,7 +112,7 @@ if [ "$failures" -eq 0 ]; then
     exit 0
 else
     echo "WARNING: $failures CRDP resource(s) still present."
-    echo "Inspect with:  microk8s kubectl get all,ingress,secret -A | grep crdp"
+    echo "Inspect with:  $KUBECTL get all,ingress,secret -A | grep crdp"
     echo "=============================================================="
     exit 1
 fi
