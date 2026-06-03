@@ -113,7 +113,7 @@ python3 CRDP_Stress.py -endpoint $CRDP_HOST -policy MyPolicy -user alice -csvlis
 
 **Kubernetes Deployment**
 
-The `CRDP_K8_Deployment/` folder contains Kubernetes manifests and a deployment script for running CRDP across a multi-node, multi-pod MicroK8s cluster:
+The `CRDP_K8_Deployment/` folder contains Kubernetes manifests and a deployment script for running CRDP across a multi-node, multi-pod Kubernetes cluster (plain `kubectl` by default; MicroK8s via the `--microk8s` flag):
 
 - **crdp-app-svc-ing.yml** — Deployment (6 replicas) and NodePort Service for CRDP.
 - **crdp-ingress.yml** — Ingress resource for host-based routing via the NGINX Ingress Controller. The `host:` field is templated as `${CRDP_HOST}` and filled in at apply time.
@@ -135,6 +135,14 @@ The deploy script reads three environment variables. If any is unset it will pro
 | `CRDP_HOST` | Hostname (FQDN) clients use to reach CRDP. Lands in the Ingress `host:` field. **Must be a hostname**, not an IP — the Kubernetes API rejects IP addresses in `host:` at admission. | **Defaults to `crdp.local`.** Echoed back so you can confirm. Override by exporting `CRDP_HOST=<your-fqdn>` before running, or by passing `--fqdn <name>` / `-f <name>` (which additionally skips the `/etc/hosts` edit and requires the name to already resolve via DNS). |
 
 > Where to get `REG_TOKEN_VALUE`: in CipherTrust Manager, open the CRDP App registration and copy the registration token.
+
+**Targeting MicroK8s (`--microk8s`):**
+
+By default the script calls plain `kubectl`. Pass `--microk8s` (or `-m`) when the cluster is a MicroK8s install — the script then routes every cluster operation through `microk8s kubectl` instead. The script validates the chosen binary is on `PATH` and aborts with a clear error if not.
+
+```bash
+./makeSecretandDeploy.sh --microk8s
+```
 
 **DNS mode (`--fqdn`):**
 
@@ -172,4 +180,4 @@ The script uses the upstream `ingress-nginx` project (`kubernetes/ingress-nginx`
 
 **Alternative: NodePort-only access (no Ingress):**
 
-If you do not want the Ingress (e.g. you want to reach CRDP by IP directly), CRDP is still exposed as a NodePort service at `http://<any-node-ip>:32085`. To use this path, comment out the final `envsubst < crdp-ingress.yml | microk8s kubectl apply -f -` line in `makeSecretandDeploy.sh` and skip the `/etc/hosts` step.
+If you do not want the Ingress (e.g. you want to reach CRDP by IP directly), CRDP is still exposed as a NodePort service at `http://<any-node-ip>:32085`. To use this path, comment out the final `envsubst < crdp-ingress.yml | $KUBECTL apply -f -` line in `makeSecretandDeploy.sh` and skip the `/etc/hosts` step.
