@@ -8,13 +8,20 @@
 #      substituting KEY_MANAGER_HOST.
 #   3. Ensures the NGINX Ingress Controller is installed (installs it from the
 #      official manifest if absent; aborts on any failure).
-#   4. Ensures /etc/hosts on this host maps $CRDP_HOST to the host's primary IP.
+#   4. Ensures $CRDP_HOST resolves on this node (default: edits /etc/hosts;
+#      with --fqdn: verifies the name via 'getent hosts' instead).
 #   5. Applies the Ingress (crdp-ingress.yml) after substituting CRDP_HOST.
 #
 # Flags:
 #   --microk8s, -m      Use 'microk8s kubectl' instead of plain 'kubectl' for
 #                       every cluster operation. Use this when targeting a
 #                       MicroK8s installation.
+#   --fqdn <NAME>, -f <NAME>
+#                       Use an existing DNS FQDN for the Ingress host. Skips the
+#                       /etc/hosts edit and the HOST_IP auto-detect. The name
+#                       MUST already resolve via DNS on this node (verified with
+#                       'getent hosts'); the script aborts if it does not. If
+#                       both --fqdn and CRDP_HOST are provided, --fqdn wins.
 #   --help, -h          Show usage and exit.
 #
 # Environment variables consumed (the script prompts or defaults if unset):
@@ -27,18 +34,42 @@
 #   CRDP_HOST         - Hostname (FQDN) clients use to reach CRDP. Defaults to
 #                       'crdp.local' if not set. MUST be a hostname, not an IP
 #                       (Kubernetes Ingress rejects IPs in the 'host:' field).
+#                       When --fqdn is supplied, CRDP_HOST is taken from the
+#                       flag and /etc/hosts is not modified.
 
 set -o pipefail
 
 # ----- Parse flags -----
 USE_MICROK8S=0
-for arg in "$@"; do
+USE_DNS=0
+FQDN_ARG=""
+while [ $# -gt 0 ]; do
+    arg="$1"
     case "$arg" in
         --microk8s|-m)
             USE_MICROK8S=1
+            shift
+            ;;
+        --fqdn|-f)
+            if [ -z "${2:-}" ] || [ "${2#-}" != "$2" ]; then
+                echo "ERROR: --fqdn requires a value (an FQDN, e.g. crdp.example.com)." >&2
+                exit 1
+            fi
+            FQDN_ARG="$2"
+            USE_DNS=1
+            shift 2
+            ;;
+        --fqdn=*|-f=*)
+            FQDN_ARG="${arg#*=}"
+            if [ -z "$FQDN_ARG" ]; then
+                echo "ERROR: --fqdn requires a value (an FQDN, e.g. crdp.example.com)." >&2
+                exit 1
+            fi
+            USE_DNS=1
+            shift
             ;;
         --help|-h)
-            sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -47,6 +78,14 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+# ----- Conflict resolution: --fqdn wins over CRDP_HOST env var -----
+if [ "$USE_DNS" -eq 1 ]; then
+    if [ -n "$CRDP_HOST" ] && [ "$CRDP_HOST" != "$FQDN_ARG" ]; then
+        echo "WARNING: --fqdn '$FQDN_ARG' overrides CRDP_HOST='$CRDP_HOST' from the environment."
+    fi
+    CRDP_HOST="$FQDN_ARG"
+fi
 
 # ----- Pre-flight: required tools -----
 if ! command -v envsubst >/dev/null 2>&1; then
@@ -124,52 +163,97 @@ while [ -z "$KEY_MANAGER_HOST" ]; do
 done
 export KEY_MANAGER_HOST
 
-# ----- CRDP_HOST (default to crdp.local) -----
+# ----- CRDP_HOST (default to crdp.local when --fqdn was not supplied) -----
 if [ -z "$CRDP_HOST" ]; then
     CRDP_HOST="crdp.local"
     echo "CRDP_HOST not set; using default: $CRDP_HOST"
-    echo "  (override by exporting CRDP_HOST=<your-fqdn> before running)"
+    echo "  (override by exporting CRDP_HOST=<your-fqdn> or passing --fqdn <name>)"
 fi
 export CRDP_HOST
 
+# ----- DNS-mode validation (only when --fqdn supplied) -----
+# In DNS mode, the operator promised that $CRDP_HOST already resolves. Verify
+# that claim now, before any cluster mutation, so a typo doesn't produce an
+# unreachable Ingress.
+if [ "$USE_DNS" -eq 1 ]; then
+    # IPv4 literals would pass getent (it echoes the IP back) but Kubernetes
+    # Ingress admission rejects IPs in the host: field. Catch this up front.
+    if is_ipv4 "$CRDP_HOST"; then
+        echo "ERROR: --fqdn value '$CRDP_HOST' looks like an IPv4 address." >&2
+        echo "       Kubernetes Ingress rejects IPs in the 'host:' field." >&2
+        echo "       Pass an FQDN (e.g. crdp.example.com) instead." >&2
+        exit 1
+    fi
+    if ! command -v getent >/dev/null 2>&1; then
+        echo "ERROR: 'getent' is required to verify --fqdn but was not found on PATH." >&2
+        echo "       Install glibc tools, or omit --fqdn and let the script manage" >&2
+        echo "       /etc/hosts instead." >&2
+        exit 1
+    fi
+    # getent consults nsswitch.conf (both DNS and /etc/hosts), so it matches what
+    # the kubelet and NGINX will actually see at runtime.
+    RESOLVED_IP=$(getent hosts "$CRDP_HOST" | awk '{print $1; exit}')
+    if [ -z "$RESOLVED_IP" ]; then
+        echo "ERROR: --fqdn '$CRDP_HOST' does not resolve via getent hosts." >&2
+        echo "       DNS (or /etc/hosts) on this node has no record for that name." >&2
+        echo "       Verify with: getent hosts $CRDP_HOST" >&2
+        echo "       Or:          dig +short $CRDP_HOST   /   nslookup $CRDP_HOST" >&2
+        echo "       Fix DNS (add an A record) or omit --fqdn to let the script" >&2
+        echo "       manage /etc/hosts using this node's primary IP." >&2
+        exit 1
+    fi
+    echo "DNS check: $CRDP_HOST -> $RESOLVED_IP (OK)"
+fi
+
 # Detect this host's primary IP for the /etc/hosts mapping below.
-HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-if [ -z "$HOST_IP" ]; then
-    echo "ERROR: Could not detect this host's primary IP (hostname -I returned nothing)." >&2
-    echo "       Set the /etc/hosts mapping for $CRDP_HOST manually and re-run." >&2
-    exit 1
+# Only needed in the non-DNS path; in DNS mode the operator's DNS handles
+# resolution and /etc/hosts is not touched.
+if [ "$USE_DNS" -eq 0 ]; then
+    HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+    if [ -z "$HOST_IP" ]; then
+        echo "ERROR: Could not detect this host's primary IP (hostname -I returned nothing)." >&2
+        echo "       Set the /etc/hosts mapping for $CRDP_HOST manually and re-run." >&2
+        exit 1
+    fi
 fi
 
 echo
 echo "Using:"
 echo "  KEY_MANAGER_HOST = $KEY_MANAGER_HOST"
-echo "  CRDP_HOST        = $CRDP_HOST  (will map to $HOST_IP in /etc/hosts)"
+if [ "$USE_DNS" -eq 1 ]; then
+    echo "  CRDP_HOST        = $CRDP_HOST  (DNS, resolves to $RESOLVED_IP)"
+else
+    echo "  CRDP_HOST        = $CRDP_HOST  (will map to $HOST_IP in /etc/hosts)"
+fi
 echo
 
 # ----- Ensure /etc/hosts maps $CRDP_HOST -> $HOST_IP on this host -----
-# Find an existing mapping for $CRDP_HOST in /etc/hosts (skipping comment lines).
-EXISTING_IP=$(awk -v h="$CRDP_HOST" '
-    !/^[[:space:]]*#/ {
-        for (i = 2; i <= NF; i++) {
-            if ($i == h) { print $1; exit }
+# Skipped entirely in DNS mode (--fqdn): the operator's DNS owns this mapping.
+if [ "$USE_DNS" -eq 0 ]; then
+    # Find an existing mapping for $CRDP_HOST in /etc/hosts (skipping comment lines).
+    EXISTING_IP=$(awk -v h="$CRDP_HOST" '
+        !/^[[:space:]]*#/ {
+            for (i = 2; i <= NF; i++) {
+                if ($i == h) { print $1; exit }
+            }
         }
-    }
-' /etc/hosts)
+    ' /etc/hosts)
 
-if [ -n "$EXISTING_IP" ]; then
-    if [ "$EXISTING_IP" = "$HOST_IP" ]; then
-        echo "/etc/hosts: $CRDP_HOST -> $HOST_IP already present."
+    if [ -n "$EXISTING_IP" ]; then
+        if [ "$EXISTING_IP" = "$HOST_IP" ]; then
+            echo "/etc/hosts: $CRDP_HOST -> $HOST_IP already present."
+        else
+            echo "WARNING: /etc/hosts already maps $CRDP_HOST -> $EXISTING_IP (expected $HOST_IP)."
+            echo "         Leaving existing entry alone. Edit /etc/hosts manually if it should change."
+        fi
     else
-        echo "WARNING: /etc/hosts already maps $CRDP_HOST -> $EXISTING_IP (expected $HOST_IP)."
-        echo "         Leaving existing entry alone. Edit /etc/hosts manually if it should change."
+        echo "Adding '$HOST_IP $CRDP_HOST' to /etc/hosts (sudo may prompt)..."
+        if ! echo "$HOST_IP $CRDP_HOST" | $SUDO tee -a /etc/hosts >/dev/null; then
+            echo "ERROR: Failed to update /etc/hosts." >&2
+            exit 1
+        fi
+        echo "/etc/hosts updated."
     fi
-else
-    echo "Adding '$HOST_IP $CRDP_HOST' to /etc/hosts (sudo may prompt)..."
-    if ! echo "$HOST_IP $CRDP_HOST" | $SUDO tee -a /etc/hosts >/dev/null; then
-        echo "ERROR: Failed to update /etc/hosts." >&2
-        exit 1
-    fi
-    echo "/etc/hosts updated."
 fi
 
 # ----- Ensure the NGINX Ingress Controller is installed -----
@@ -247,10 +331,17 @@ echo "    python3 CRDP_Stress.py -endpoint $CRDP_HOST -policy <name> -user <name
 echo "=============================================================="
 echo
 echo "Notes:"
-echo " - On THIS host, $CRDP_HOST -> $HOST_IP is set in /etc/hosts."
-echo " - To call CRDP from OTHER hosts, add the same line to their /etc/hosts"
-echo "   (or to your DNS):"
-echo "     $HOST_IP $CRDP_HOST"
+if [ "$USE_DNS" -eq 1 ]; then
+    echo " - DNS mode: $CRDP_HOST resolves to $RESOLVED_IP via DNS on this node."
+    echo "   /etc/hosts was NOT modified."
+    echo " - Every client calling CRDP must also be able to resolve $CRDP_HOST"
+    echo "   via DNS (or its own /etc/hosts entry)."
+else
+    echo " - On THIS host, $CRDP_HOST -> $HOST_IP is set in /etc/hosts."
+    echo " - To call CRDP from OTHER hosts, add the same line to their /etc/hosts"
+    echo "   (or to your DNS):"
+    echo "     $HOST_IP $CRDP_HOST"
+fi
 echo " - The CRDP Service is also exposed as a NodePort at <any-node-ip>:32085"
 echo "   (bypass the Ingress entirely by commenting out the final"
 echo "   'envsubst < crdp-ingress.yml' line above)."

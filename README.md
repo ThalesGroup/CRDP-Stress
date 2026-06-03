@@ -120,7 +120,7 @@ The `CRDP_K8_Deployment/` folder contains Kubernetes manifests and a deployment 
 - **makeSecretandDeploy.sh** — Deployment script that:
   1. Creates the `crdp-secret-name` Kubernetes secret from the CRDP App registration token.
   2. Ensures the NGINX Ingress Controller is installed — installs it from the official manifest (`ingress-nginx` v1.11.2, bare-metal variant) if absent, and patches it for `hostNetwork=true` so it binds to port 80. Aborts on any install failure.
-  3. Ensures `/etc/hosts` on this host maps `$CRDP_HOST` to the host's primary IP (adds the line via `sudo` if missing).
+  3. Ensures `$CRDP_HOST` is resolvable on this host — by default edits `/etc/hosts` (adds the line via `sudo` if missing); with `--fqdn <name>` it verifies the name already resolves via `getent hosts` and leaves `/etc/hosts` untouched.
   4. Applies the Deployment and Service from crdp-app-svc-ing.yml (substituting `KEY_MANAGER_HOST`).
   5. Applies the Ingress resource from crdp-ingress.yml (substituting `CRDP_HOST`).
 
@@ -132,9 +132,19 @@ The deploy script reads three environment variables. If any is unset it will pro
 |---|---|---|
 | `REG_TOKEN_VALUE` | CRDP App Registration Token from CipherTrust Manager. Treat as a credential — do **not** commit it to source control. | **Silent prompt** (input is not echoed). Aborts if empty. |
 | `KEY_MANAGER_HOST` | IP or FQDN of the CipherTrust Manager that CRDP pods register against. Lands in the `KEY_MANAGER_HOST` env of every CRDP pod. | **Echoed prompt.** Aborts if empty. |
-| `CRDP_HOST` | Hostname (FQDN) clients use to reach CRDP. Lands in the Ingress `host:` field. **Must be a hostname**, not an IP — the Kubernetes API rejects IP addresses in `host:` at admission. | **Defaults to `crdp.local`.** Echoed back so you can confirm. Override by exporting `CRDP_HOST=<your-fqdn>` before running. |
+| `CRDP_HOST` | Hostname (FQDN) clients use to reach CRDP. Lands in the Ingress `host:` field. **Must be a hostname**, not an IP — the Kubernetes API rejects IP addresses in `host:` at admission. | **Defaults to `crdp.local`.** Echoed back so you can confirm. Override by exporting `CRDP_HOST=<your-fqdn>` before running, or by passing `--fqdn <name>` / `-f <name>` (which additionally skips the `/etc/hosts` edit and requires the name to already resolve via DNS). |
 
 > Where to get `REG_TOKEN_VALUE`: in CipherTrust Manager, open the CRDP App registration and copy the registration token.
+
+**DNS mode (`--fqdn`):**
+
+Pass `--fqdn <name>` (or `-f <name>`) when `$CRDP_HOST` is already published through DNS. The script then skips the `/etc/hosts` edit, doesn't need `sudo` for hosts-file modification, and verifies resolution with `getent hosts` before applying anything to the cluster. Every client calling CRDP must also be able to resolve the name.
+
+```bash
+./makeSecretandDeploy.sh --fqdn crdp.example.com
+```
+
+If the FQDN does not resolve at install time the script aborts with a clear error so a typo cannot produce a silently-unreachable Ingress. If both `--fqdn` and the `CRDP_HOST` env var are set to different values, the flag wins and the script emits a warning.
 
 **To deploy:**
 
@@ -149,11 +159,12 @@ The deploy script reads three environment variables. If any is unset it will pro
    cd CRDP_K8_Deployment
    ./makeSecretandDeploy.sh
    ```
-   You may be prompted for your sudo password (used only to append the `$CRDP_HOST` entry to `/etc/hosts` if not already present). The script prints the final URL (`http://$CRDP_HOST`) and a ready-to-use stress-test command at the end.
-3. **For other clients** — the script only updates `/etc/hosts` on the host where it runs. To call CRDP from any other client, add the same line on that client (or set up DNS):
+   You may be prompted for your sudo password (used only to append the `$CRDP_HOST` entry to `/etc/hosts` if not already present; skipped in `--fqdn` mode). The script prints the final URL (`http://$CRDP_HOST`) and a ready-to-use stress-test command at the end.
+3. **For other clients** — in the default mode the script only updates `/etc/hosts` on the host where it runs. To call CRDP from any other client, add the same line on that client (or set up DNS):
    ```
    <deploy-host-ip>  crdp.local
    ```
+   If you maintain DNS centrally, use `--fqdn <name>` on the deploy host instead — then no client needs an `/etc/hosts` edit.
 
 **About the NGINX Ingress Controller:**
 
