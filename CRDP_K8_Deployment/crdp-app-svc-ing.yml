@@ -32,7 +32,7 @@ spec:
                   key: regtoken
           ports:
             - containerPort: 8090
-  replicas: 6
+  replicas: 12
   selector:
       matchLabels:
         run: crdp
