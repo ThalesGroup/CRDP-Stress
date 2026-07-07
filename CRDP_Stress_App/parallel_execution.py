@@ -243,6 +243,8 @@ def build_phase_record(agg_metrics, data_size, cpu, operation_name):
         "operation": operation_name,
         "total_cards": agg_metrics.total_items,
         "wall_time_sec": dur,
+        "wall_start_epoch": agg_metrics.overall_start,
+        "wall_end_epoch": agg_metrics.overall_end,
         "cards_per_sec": agg_metrics.cards_per_sec(),
         "mb_per_sec": (data_size / dur / 1_000_000) if dur > 0 else 0,
         "data_size_bytes": data_size,
