@@ -24,7 +24,7 @@ Test_Data/            # Sample inputs for -payload / -csvlist
 ```
 
 Usage:
-**py CRDP_Stress.py [-h] -endpoint ENDPOINTCRDP -policy PROTECTIONPOLICY [-iterations ITERATIONS] -user USERNAME [-batchsize BATCHSIZE] [-charset {ALPHANUMERIC, DIGITSONLY, PRINTABLEASCII}] [-threads THREADCOUNT] [-payload FILENAME | -csvlist FILENAME]** where:
+**py CRDP_Stress.py [-h] -endpoint ENDPOINTCRDP -policy PROTECTIONPOLICY [-iterations ITERATIONS] -user USERNAME [-batchsize BATCHSIZE] [-charset {ALPHANUMERIC, DIGITSONLY, PRINTABLEASCII}] [-threads THREADCOUNT] [-jsonout FILENAME] [-label NAME] [-payload FILENAME | -csvlist FILENAME]** where:
 
 -endpoint ENDPOINTCRDP - The host name (or IP address) and port (optional) where CRDP is hosted. Typically the value of `$CRDP_HOST` from the deploy script (defaults to `crdp.local`).
 
@@ -54,6 +54,19 @@ Usage:
                         distributed round-robin across threads; each thread sends one message at a
                         time until all messages are sent. Capped to the number of messages — there
                         is no benefit in idle workers.
+
+-jsonout FILENAME   - (optional) Write a machine-readable JSON results file for run-to-run
+                        comparison. Captures, per phase (PROTECT/REVEAL): throughput in cards/sec,
+                        MB/s, per-bulk-call latency percentiles (p50/p95/p99/max), a rolling
+                        cards/sec time series, worker load skew, and client-host CPU (avg/peak).
+                        Useful for the throughput attribution matrix (client vs ingress vs backend).
+
+-label NAME         - (optional) A tag recorded in the -jsonout file to identify the run
+                        (e.g. `testA-4clients`). Has no effect unless -jsonout is also supplied.
+
+> The client-host CPU line (in both the on-screen summary and the -jsonout file) requires the
+> `psutil` package (`pip install -r requirements.txt`). If psutil is not installed the run still
+> works and every other metric is captured; the CPU line just reports "not captured".
 
 -payload FILENAME   - Supply an actual file (text or binary) that is encrypted in its entirety
                         as a single payload. With `-iterations N`, each message contains `batchsize`

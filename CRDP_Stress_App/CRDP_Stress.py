@@ -26,8 +26,11 @@ from tqdm import tqdm
 from termcolor import colored
 import os
 import csv
+import json
+import socket
 import base64
 import string
+from datetime import datetime
 from enum import Enum
 
 #  --------- DEFINED Routines -----------------
@@ -68,6 +71,14 @@ parser.add_argument(
 parser.add_argument(
     "-threads", nargs=1, action="store", required=False, dest="numThreads", type=int, default=[1], metavar="NUMTHREADS", help="Number of concurrent client threads sending data to CRDP for processing"
 )
+parser.add_argument(
+    "-jsonout", nargs=1, action="store", required=False, dest="jsonout",
+    help="Write machine-readable results (cards/sec, latency percentiles, rolling throughput, client CPU) to this JSON file for run-to-run comparison"
+)
+parser.add_argument(
+    "-label", nargs=1, action="store", required=False, dest="label",
+    help="Optional tag recorded in the JSON results to identify this run (e.g. testA-4clients)"
+)
 
 fileGroup = parser.add_mutually_exclusive_group(required=False)
 fileGroup.add_argument(
@@ -100,6 +111,9 @@ if batchsize < 0:
 
 protectionPolicy = args.protectionPolicy[0]
 r_user = args.username[0]
+
+jsonout = args.jsonout[0] if args.jsonout else ""
+runLabel = args.label[0] if args.label else ""
 
 # Parse number of tasks (parallel workers)
 numThreads = args.numThreads[0] if args.numThreads else 1
@@ -308,6 +322,7 @@ print(colored("  Total payloads: %d  |  Messages: %d  |  Workers: %d" % (p_count
 #####################################################################
 print(colored("*** CRDP PROTECTION Test Started ***", "white", attrs=["bold"]))
 
+protect_cpu = ClientCpuSampler().start()
 if numThreads > 1:
     starttime = time.time()
     protect_agg_metrics, c_data_array, c_version = execute_protect_messages_parallel(
@@ -319,13 +334,21 @@ else:
     starttime = time.time()
     c_data_array = []
     c_version = None
+    protect_records = []
     for msg in tqdm(messages, desc="Bulk PROTECT Progress"):
+        call_start = time.time()
         chunk, version = protectBulkData(endpointCRDP, msg, protectionPolicy)
+        call_end = time.time()
+        protect_records.append((call_start, call_end, len(msg)))
         c_data_array.extend(chunk)
         if c_version is None:
             c_version = version
     endtime = time.time()
     protect_time = endtime - starttime
+    # Build the same rich metrics object the parallel path produces so the
+    # single-thread baseline is directly comparable.
+    protect_agg_metrics = single_worker_aggregate(protect_records, starttime, endtime)
+protect_cpu.stop()
 
 p_data = p_data_array[0]
 c_data = c_data_array[0][CRDP_PROTECTED_DATA_NAME]
@@ -342,6 +365,7 @@ if batchsize == 0:
 else:
     reveal_messages = [c_data_array[i:i + batchsize] for i in range(0, len(c_data_array), batchsize)]
 
+reveal_cpu = ClientCpuSampler().start()
 if numThreads > 1:
     starttime = time.time()
     reveal_agg_metrics, r_data_array = execute_reveal_messages_parallel(
@@ -352,11 +376,17 @@ if numThreads > 1:
 else:
     starttime = time.time()
     r_data_array = []
+    reveal_records = []
     for msg in tqdm(reveal_messages, desc="Bulk REVEAL Progress"):
+        call_start = time.time()
         chunk = revealBulkData(endpointCRDP, msg, protectionPolicy, c_version, r_user)
+        call_end = time.time()
+        reveal_records.append((call_start, call_end, len(msg)))
         r_data_array.extend(chunk)
     endtime = time.time()
     reveal_time = endtime - starttime
+    reveal_agg_metrics = single_worker_aggregate(reveal_records, starttime, endtime)
+reveal_cpu.stop()
 
 r_data = r_data_array[0][CRDP_DATA_NAME]
 if len(payloadFile) > 0:
@@ -369,26 +399,11 @@ if len(payloadFile) > 0:
 #####################################################################
 print(colored("\n==================== CRDP Test Summary ====================", "white", attrs=["bold"]))
 
-if numThreads > 1:
-    # Parallel mode: use aggregated metrics for summary with load distribution
-    display_test_summary(protect_agg_metrics, data_size, "PROTECT")
-    display_test_summary(reveal_agg_metrics, data_size, "REVEAL")
-else:
-    # Sequential mode: display completion messages from saved timing
-
-    pRate_protect = (data_size / protect_time) / 1000000
-    outStr = (
-        "CRDP Test Completed - PROTECT. %5.3f MBs processed. Process time: %5.2f sec.  Rate: %5.3f MB/s."
-        % (data_size / 1000000, protect_time, pRate_protect)
-    )
-    print(colored(outStr, "green", attrs=["bold"]))
-
-    pRate_reveal = (data_size / reveal_time) / 1000000
-    outStr = (
-        "CRDP Test Completed - REVEAL. %5.3f MBs processed. Process time: %5.2f sec.  Rate: %5.3f MB/s."
-        % (data_size / 1000000, reveal_time, pRate_reveal)
-    )
-    print(colored(outStr, "green", attrs=["bold"]))
+# Both paths now produce an AggregatedMetrics, so the summary (MB/s plus the
+# cards/sec, latency, rolling-throughput, and client-CPU attribution lines) is
+# rendered the same way whether the run was sequential or parallel.
+display_test_summary(protect_agg_metrics, data_size, "PROTECT", protect_cpu)
+display_test_summary(reveal_agg_metrics, data_size, "REVEAL", reveal_cpu)
 
 
 print(colored("============================================================\n", "white", attrs=["bold"]))
@@ -444,3 +459,44 @@ if payloadFile:
 
     outStr = "Protected payload written to: %s" % protectedFile
     print(colored(outStr, "green", attrs=["bold"]))
+
+#####################################################################
+# Machine-readable results (-jsonout) - one comparable record per run,
+# capturing the attribution metrics for the client / ingress / backend
+# experiment matrix.
+#####################################################################
+if jsonout:
+    if csvListFile:
+        mode = "csvlist"
+        source = csvListFile
+    elif payloadFile:
+        mode = "payload"
+        source = payloadFile
+    else:
+        mode = "random"
+        source = charSetValue
+
+    result = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "hostname": socket.gethostname(),
+        "label": runLabel,
+        "params": {
+            "endpoint": endpointCRDP,
+            "protection_policy": protectionPolicy,
+            "mode": mode,
+            "source": source,
+            "iterations": iterations,
+            "batchsize": batchsize,
+            "threads": numThreads,
+            "total_payloads": p_count,
+            "message_count": message_count,
+            "data_size_bytes": data_size,
+        },
+        "protect": build_phase_record(protect_agg_metrics, data_size, protect_cpu, "PROTECT"),
+        "reveal": build_phase_record(reveal_agg_metrics, data_size, reveal_cpu, "REVEAL"),
+    }
+
+    with open(jsonout, "w") as jf:
+        json.dump(result, jf, indent=2)
+
+    print(colored("Results written to: %s" % jsonout, "green", attrs=["bold"]))
