@@ -11,6 +11,7 @@ CRDP_Stress_App/      # Python stress-test app (run from here)
   CRDP_Stress.py
   CRDP_REST_API.py
   parallel_execution.py
+  multi_client.py       # launches N stress processes on one host (beats the GIL)
   requirements.txt
 CRDP_K8_Deployment/   # Kubernetes manifests + deploy script for CRDP
   crdp-app-svc-ing.yml
@@ -124,11 +125,45 @@ python3 CRDP_Stress.py -endpoint $CRDP_HOST -policy MyPolicy -user alice -payloa
 python3 CRDP_Stress.py -endpoint $CRDP_HOST -policy MyPolicy -user alice -csvlist ../Test_Data/testpatterns.csv -batchsize 50 -threads 10
 ```
 
+**Recommended settings for credit-card throughput (16-digit card, 3-node / 24-pod cluster):**
+
+Measured against the tuned 3-node cluster (48 CPU cores total; 24 CRDP pods with CPU requests and an
+even pod spread — see [crdp-app-svc-ing.yml](CRDP_K8_Deployment/crdp-app-svc-ing.yml)). Two client
+knobs drive throughput: `-batchsize` (cards per bulk REST call) and concurrency. Concurrency comes in
+two forms — `-threads` (worker threads inside one Python process, capped by the GIL) and **processes**
+(independent OS processes launched by `multi_client.py`, which sidestep the GIL). The optimal mix
+depends on which layer is the bottleneck, and that is decided by the protection policy's cipher:
+
+| Protection policy | Cipher | Bottleneck | `-batchsize` | `-threads` (per process) | Client processes |
+|---|---|---|---|---|---|
+| FPE_AES (e.g. `CRDP_Digitsonly_Protection`) | format-preserving AES | **backend CPU** | 5000 | 20 | 4–6 |
+| AES/CBC (e.g. `CRDP_Binary_Protection`) | AES-256-CBC | **client / load host** | 5000 | 20 | ~1 per physical core of the load host (≈6–8 on a 12-core box); add load hosts to scale further |
+
+- **Batch size ≈ 5000** is the sweet spot for both policies. Smaller adds per-call overhead; much
+  larger (20k–40k) *reduces* throughput because the last oversized message per worker creates tail
+  imbalance (one node drains while the others sit idle).
+- **Threads plateau around 20.** Past ~24 the GIL serializes the per-call JSON encode/decode, so extra
+  threads add nothing (throughput was flat from 24→48 threads in testing). To go faster, add
+  **processes** (via `multi_client.py`), not threads.
+- **FPE_AES is backend-bound** (~650k cards/sec on 48 cores): ~5 client processes fully saturate the
+  cluster and more just contend. Reaching 1M/sec with FPE needs **more nodes**, not more client load.
+- **AES-256-CBC costs roughly half the CPU per card** (~1.3M cards/sec ceiling on the same 48 cores),
+  so the *load host* becomes the limit. Use one process per physical core, keep `orjson` installed
+  (it releases the GIL for JSON), and add load hosts to reach the ceiling.
+
+Near-optimal FPE run — 6 client processes:
+```bash
+cd CRDP_Stress_App
+python3 multi_client.py -clients 6 -endpoint $CRDP_HOST \
+  -policy CRDP_Digitsonly_Protection -user alice \
+  -iterations 2000000 -batchsize 5000 -threads 20
+```
+
 **Kubernetes Deployment**
 
 The `CRDP_K8_Deployment/` folder contains Kubernetes manifests and a deployment script for running CRDP across a multi-node, multi-pod Kubernetes cluster (plain `kubectl` by default; MicroK8s via the `--microk8s` flag):
 
-- **crdp-app-svc-ing.yml** — Deployment (6 replicas) and NodePort Service for CRDP.
+- **crdp-app-svc-ing.yml** — Deployment (24 replicas, with CPU requests and `topologySpreadConstraints` for even placement) and NodePort Service for CRDP.
 - **crdp-ingress.yml** — Ingress resource for host-based routing via the NGINX Ingress Controller. The `host:` field is templated as `${CRDP_HOST}` and filled in at apply time.
 - **makeSecretandDeploy.sh** — Deployment script that:
   1. Creates the `crdp-secret-name` Kubernetes secret from the CRDP App registration token.
