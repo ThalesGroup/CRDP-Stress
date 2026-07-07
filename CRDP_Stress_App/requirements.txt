@@ -2,3 +2,4 @@ requests
 tqdm
 termcolor
 psutil
+orjson

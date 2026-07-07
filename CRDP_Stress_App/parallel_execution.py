@@ -15,7 +15,8 @@ from tqdm import tqdm
 from termcolor import colored
 from CRDP_REST_API import (
     protectData, protectBulkData, revealData, revealBulkData,
-    CRDP_PROTECTED_DATA_NAME, CRDP_DATA_NAME, CRDP_EXTERNAL_VER_NAME
+    CRDP_PROTECTED_DATA_NAME, CRDP_DATA_NAME, CRDP_EXTERNAL_VER_NAME,
+    _dumps, _loads,
 )
 
 # psutil powers the client-host CPU sampler (attribution: is the Python load
@@ -309,7 +310,7 @@ def protectData_session(session, t_endpointCRDP, t_data, t_protectionPolicy):
 
     try:
         r = session.post(
-            t_endpoint, data=__import__('json').dumps(t_dataStr),
+            t_endpoint, data=_dumps(t_dataStr),
             headers=t_headers, verify=False, timeout=NET_TIMEOUT
         )
     except requests.exceptions.RequestException as e:
@@ -321,7 +322,7 @@ def protectData_session(session, t_endpointCRDP, t_data, t_protectionPolicy):
         raise Exception(f"HTTP {r.status_code}")
 
     # external_version is optional - policies without key rotation omit it.
-    t_json = r.json()
+    t_json = _loads(r)
     t_protectedData = t_json[CRDP_PROTECTED_DATA_NAME]
     t_version = t_json.get(CRDP_EXTERNAL_VER_NAME)
 
@@ -348,7 +349,7 @@ def protectBulkData_session(session, t_endpointCRDP, t_dataArray, t_protectionPo
 
     try:
         r = session.post(
-            t_endpoint, data=__import__('json').dumps(t_dataStr),
+            t_endpoint, data=_dumps(t_dataStr),
             headers=t_headers, verify=False, timeout=NET_TIMEOUT
         )
     except requests.exceptions.RequestException as e:
@@ -361,7 +362,7 @@ def protectBulkData_session(session, t_endpointCRDP, t_dataArray, t_protectionPo
 
     # external_version is optional - policies without key rotation omit it from
     # the per-item entries in protected_data_array.
-    t_protectedData = r.json()[CRDP_PROTECTED_DATA_ARRAY_NAME]
+    t_protectedData = _loads(r)[CRDP_PROTECTED_DATA_ARRAY_NAME]
     t_version = t_protectedData[0].get(CRDP_EXTERNAL_VER_NAME) if t_protectedData else None
 
     return t_protectedData, t_version
@@ -391,7 +392,7 @@ def revealData_session(session, t_endpointCRDP, t_data, t_protectionPolicy, t_ex
 
     try:
         r = session.post(
-            t_endpoint, data=__import__('json').dumps(t_dataStr),
+            t_endpoint, data=_dumps(t_dataStr),
             headers=t_headers, verify=False, timeout=NET_TIMEOUT
         )
     except requests.exceptions.RequestException as e:
@@ -402,7 +403,7 @@ def revealData_session(session, t_endpointCRDP, t_data, t_protectionPolicy, t_ex
         kPrintError("revealData_session", r)
         raise Exception(f"HTTP {r.status_code}")
 
-    t_revealedData = r.json()[CRDP_DATA_NAME]
+    t_revealedData = _loads(r)[CRDP_DATA_NAME]
 
     return t_revealedData
 
@@ -428,7 +429,7 @@ def revealBulkData_session(session, t_endpointCRDP, t_dataArray, t_protectionPol
 
     try:
         r = session.post(
-            t_endpoint, data=__import__('json').dumps(t_dataStr),
+            t_endpoint, data=_dumps(t_dataStr),
             headers=t_headers, verify=False, timeout=NET_TIMEOUT
         )
     except requests.exceptions.RequestException as e:
@@ -439,7 +440,7 @@ def revealBulkData_session(session, t_endpointCRDP, t_dataArray, t_protectionPol
         kPrintError("revealBulkData_session", r)
         raise Exception(f"HTTP {r.status_code}")
 
-    t_revealedDataArray = r.json()[CRDP_DATA_ARRAY_NAME]
+    t_revealedDataArray = _loads(r)[CRDP_DATA_ARRAY_NAME]
 
     return t_revealedDataArray
 

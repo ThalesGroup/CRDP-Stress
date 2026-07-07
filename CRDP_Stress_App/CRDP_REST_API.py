@@ -11,6 +11,36 @@ import requests
 import json
 
 
+# ---------------- HOT-PATH JSON -------------------------------------------------
+# orjson (a C extension that releases the GIL and is ~3-6x faster than stdlib
+# json at both dumps and loads) is a large client-side win: at high throughput
+# the load generator is bottlenecked by serializing requests and parsing bulk
+# responses of thousands of items under the GIL. _dumps/_loads route the hot
+# path through orjson when available and fall back to stdlib json otherwise -
+# behavior is identical either way.
+try:
+    import orjson
+
+    def _dumps(obj):
+        # orjson.dumps returns bytes; requests accepts bytes for `data=`.
+        return orjson.dumps(obj)
+
+    def _loads(resp):
+        # Parse straight from the raw response bytes, skipping requests' own
+        # json() machinery (which defers to stdlib json).
+        return orjson.loads(resp.content)
+
+    JSON_IMPL = "orjson"
+except ImportError:
+    def _dumps(obj):
+        return json.dumps(obj)
+
+    def _loads(resp):
+        return resp.json()
+
+    JSON_IMPL = "json"
+
+
 # ---------------- CONSTANTS -----------------------------------------------------
 STATUS_CODE_OK = 200
 NET_TIMEOUT = 600
@@ -49,7 +79,7 @@ def protectData(t_endpointCRDP, t_data, t_protectionPolicy):
     # Now that everything is populated, assemble and post command
     try:
         r = requests.post(
-            t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
+            t_endpoint, data=_dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
         )
     except requests.exceptions.RequestException as e:
         print("protectData-exception:\n", e)
@@ -61,7 +91,7 @@ def protectData(t_endpointCRDP, t_data, t_protectionPolicy):
 
     # Extract the UserAuthId from the value of the key-value pair of the JSON reponse.
     # external_version is optional - policies that do not use key rotation omit it.
-    t_json = r.json()
+    t_json = _loads(r)
     t_protectedData = t_json[CRDP_PROTECTED_DATA_NAME]
     t_version = t_json.get(CRDP_EXTERNAL_VER_NAME)
 
@@ -85,7 +115,7 @@ def screenProtectPolicy(t_endpointCRDP, t_data, t_protectionPolicy):
 
     try:
         r = requests.post(
-            t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
+            t_endpoint, data=_dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
         )
     except requests.exceptions.RequestException as e:
         return False, str(e)
@@ -114,7 +144,7 @@ def protectBulkData(t_endpointCRDP, t_dataArray, t_protectionPolicy):
     # Now that everything is populated, assemble and post command
     try:
         r = requests.post(
-            t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
+            t_endpoint, data=_dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
         )
     except requests.exceptions.RequestException as e:
         print("protectBulkData-exception:\n", e)
@@ -127,7 +157,7 @@ def protectBulkData(t_endpointCRDP, t_dataArray, t_protectionPolicy):
     # Extract the UserAuthId from the value of the key-value pair of the JSON reponse.
     # external_version is optional - policies that do not use key rotation omit it
     # from the per-item entries in protected_data_array.
-    t_protectedData = r.json()[CRDP_PROTECTED_DATA_ARRAY_NAME]
+    t_protectedData = _loads(r)[CRDP_PROTECTED_DATA_ARRAY_NAME]
     t_version = t_protectedData[0].get(CRDP_EXTERNAL_VER_NAME) if t_protectedData else None
 
     return t_protectedData, t_version
@@ -155,7 +185,7 @@ def revealData(t_endpointCRDP, t_data, t_protectionPolicy, t_externalVersion, t_
     # Now that everything is populated, assemble and post command
     try:
         r = requests.post(
-            t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
+            t_endpoint, data=_dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
         )
     except requests.exceptions.RequestException as e:
         print("revealData-exception:\n", e)
@@ -166,7 +196,7 @@ def revealData(t_endpointCRDP, t_data, t_protectionPolicy, t_externalVersion, t_
         exit()
 
     # Extract the UserAuthId from the value of the key-value pair of the JSON reponse.
-    t_revealedData = r.json()[CRDP_DATA_NAME]
+    t_revealedData = _loads(r)[CRDP_DATA_NAME]
 
     return t_revealedData
 
@@ -192,7 +222,7 @@ def revealBulkData(
     # Now that everything is populated, assemble and post command
     try:
         r = requests.post(
-            t_endpoint, data=json.dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
+            t_endpoint, data=_dumps(t_dataStr), headers=t_headers, verify=False, timeout=NET_TIMEOUT
         )
     except requests.exceptions.RequestException as e:
         print("revealBulkData-exception:\n", e)
@@ -203,7 +233,7 @@ def revealBulkData(
         exit()
 
     # Extract the UserAuthId from the value of the key-value pair of the JSON reponse.
-    t_revealedDataArray = r.json()[CRDP_DATA_ARRAY_NAME]
+    t_revealedDataArray = _loads(r)[CRDP_DATA_ARRAY_NAME]
 
     return t_revealedDataArray
 
