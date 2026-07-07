@@ -32,7 +32,34 @@ spec:
                   key: regtoken
           ports:
             - containerPort: 8090
-  replicas: 12
+          # PERF: CRDP protect/reveal is CPU-bound (FPE tokenization). With no
+          # requests the scheduler packs pods blindly and nodes plateaued at
+          # ~80% under load; setting a request makes placement deterministic and
+          # pushed utilization to ~94% (measured). 1500m x 24 pods = 36 cores of
+          # requests, which fits the 3x16-core cluster with headroom for system
+          # pods. NOTE: no CPU limit is set on purpose so pods can burst into
+          # spare cores. This tuning reaches the ~48-core physical ceiling
+          # (~650k protect cards/s); exceeding it requires MORE NODES, not more
+          # pods (48 pods measured no faster than 24 on this hardware).
+          resources:
+            requests:
+              cpu: "1500m"
+      # PERF: keep replicas evenly balanced across all nodes. An unbalanced
+      # spread (observed 24/16/8 when packing 48 pods) left a whole node at ~35%
+      # while others saturated, wasting cores. ScheduleAnyway avoids blocking
+      # rollout if a node is temporarily full.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              run: crdp
+  # PERF: 24 pods (~1 per 2 cores on the current 3x16-core cluster) is near
+  # optimal for THIS hardware. To approach 1,000,000 protect cards/sec, add
+  # worker nodes (~+2 sixteen-core nodes -> ~80 cores) and raise replicas to
+  # keep ~1 pod per 1.5-2 cores; core count is the throughput lever, not pods.
+  replicas: 24
   selector:
       matchLabels:
         run: crdp
