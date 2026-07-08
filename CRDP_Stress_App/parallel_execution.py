@@ -1006,7 +1006,8 @@ def display_test_summary(agg_metrics, data_size, operation_name, cpu=None):
         avg_dur = agg_metrics.avg_worker_duration()
         skew = agg_metrics.load_skew_percent()
 
-        print(colored(f"  Load Distribution: Min: {min_dur:.2f}s | Max: {max_dur:.2f}s | "
-              f"Avg: {avg_dur:.2f}s | Skew: {skew:.1f}%"), "cyan")
+        print(colored(
+            f"  Load Distribution: Min: {min_dur:.2f}s | Max: {max_dur:.2f}s | "
+            f"Avg: {avg_dur:.2f}s | Skew: {skew:.1f}%"), "cyan")
 
     print()  # blank line after summary
