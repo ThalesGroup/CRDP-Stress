@@ -967,7 +967,7 @@ def display_test_summary(agg_metrics, data_size, operation_name, cpu=None):
     print(colored(
         f"  Throughput: {tps:,.0f} txns/sec  "
         f"({agg_metrics.total_items:,} txns in {overall_time:.2f}s)",
-        "grey", attrs=["bold"]))
+        "cyan", attrs=["bold"]))
 
     # Per-bulk-call latency distribution. Most informative at small batch sizes;
     # at very large batches a run may be only a handful of calls (coarse).
