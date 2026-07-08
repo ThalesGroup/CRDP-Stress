@@ -223,6 +223,15 @@ match(charSetValue):
         charValues = string.printable
         p_data = getRNDStr(64, charValues)
 
+    case _:
+        # argparse `choices` already constrains -charset, so this is unreachable
+        # today. It exists so p_data is provably bound below, and so that adding
+        # a charSet member without a branch here fails loudly instead of silently
+        # producing no plaintext.
+        tmpStr = "\n*** CRDP ERROR:  Unsupported character set '%s'. ***" % charSetValue
+        print(colored(tmpStr, "yellow", attrs=["bold"]))
+        exit()
+
 
 # Reserve some variables for later use
 p_data_array = []  # reserve for later use - cleartext (plaintext)
@@ -391,7 +400,11 @@ reveal_cpu.stop()
 r_data = r_data_array[0][CRDP_DATA_NAME]
 if len(payloadFile) > 0:
     r_data = base64.b64decode(r_data)
-    p_data = f_content
+    if f_content is not None:
+        # Display the original file bytes rather than the base64 we transmitted.
+        # f_content is always populated in payload mode; the guard keeps p_data
+        # non-Optional for the summary print below.
+        p_data = f_content
 
 
 #####################################################################

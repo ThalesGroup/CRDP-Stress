@@ -7,26 +7,23 @@
 ######################################################################
 import time
 import threading
-import statistics
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 from tqdm import tqdm
 from termcolor import colored
-from CRDP_REST_API import (
-    protectData, protectBulkData, revealData, revealBulkData,
-    CRDP_PROTECTED_DATA_NAME, CRDP_DATA_NAME, CRDP_EXTERNAL_VER_NAME,
-    _dumps, _loads,
-)
+from CRDP_REST_API import _dumps, _loads
 
 # psutil powers the client-host CPU sampler (attribution: is the Python load
-# generator itself the bottleneck?). It is an optional dependency - if it is not
-# installed the sampler degrades gracefully and everything else still works.
+# generator itself the bottleneck?). It is an optional dependency - when absent,
+# `psutil` stays None, the sampler degrades gracefully, and everything else still
+# works. Binding it to None on the failure path (rather than only setting a flag)
+# keeps the name defined on every path, so the `psutil is None` guards below both
+# read clearly and let static analysis narrow the type.
 try:
     import psutil
-    _HAS_PSUTIL = True
 except ImportError:
-    _HAS_PSUTIL = False
+    psutil = None
 
 
 # -------------------- Metrics Classes --------------------
@@ -34,27 +31,34 @@ except ImportError:
 class WorkerMetrics:
     """Metrics collected by each worker thread"""
     def __init__(self, worker_id):
+        # start_time/end_time are stamped by the worker functions (outside this
+        # class), so they need explicit optional annotations - otherwise a type
+        # checker infers them as plain `None` from this constructor alone.
         self.worker_id = worker_id
-        self.start_time = None
-        self.end_time = None
+        self.start_time: float | None = None
+        self.end_time: float | None = None
         self.items_processed = 0
-        self.errors = []
+        self.errors: list[str] = []
         # One (call_start_ts, call_end_ts, n_items) tuple per bulk REST call this
         # worker made. Latency, per-call size, and rolling throughput all derive
         # from these records - they are the raw material for attribution.
-        self.call_records = []
+        self.call_records: list[tuple[float, float, int]] = []
 
     def duration(self):
-        """Return duration in seconds"""
-        return self.end_time - self.start_time if self.end_time else 0
+        """Return duration in seconds (0 until both timestamps are recorded)."""
+        if self.start_time is None or self.end_time is None:
+            return 0.0
+        return self.end_time - self.start_time
 
 
 class AggregatedMetrics:
     """Aggregated metrics across all workers"""
     def __init__(self):
-        self.overall_start = None
-        self.overall_end = None
-        self.worker_metrics = []
+        # overall_start/overall_end are stamped by the orchestration functions
+        # (outside this class), so they carry explicit optional annotations.
+        self.overall_start: float | None = None
+        self.overall_end: float | None = None
+        self.worker_metrics: list[WorkerMetrics] = []
         self.total_items = 0
 
     def add_worker_metrics(self, metrics):
@@ -63,8 +67,10 @@ class AggregatedMetrics:
         self.total_items += metrics.items_processed
 
     def overall_duration(self):
-        """Total wall-clock time"""
-        return self.overall_end - self.overall_start if self.overall_end else 0
+        """Total wall-clock time (0 until both timestamps are recorded)."""
+        if self.overall_start is None or self.overall_end is None:
+            return 0.0
+        return self.overall_end - self.overall_start
 
     def worker_durations(self):
         """List of all worker durations"""
@@ -177,13 +183,15 @@ class ClientCpuSampler:
     """
     def __init__(self, interval=0.5):
         self.interval = interval
-        self.samples = []
+        self.samples: list[float] = []
         self._stop = threading.Event()
-        self._thread = None
-        self.cores = psutil.cpu_count(logical=True) if _HAS_PSUTIL else 0
+        self._thread: threading.Thread | None = None
+        # psutil.cpu_count() may legitimately return None on exotic platforms;
+        # coerce to 0 so `cores` is always an int.
+        self.cores = (psutil.cpu_count(logical=True) or 0) if psutil is not None else 0
 
     def start(self):
-        if not _HAS_PSUTIL:
+        if psutil is None:
             return self
         psutil.cpu_percent(None)  # prime the internal counter; first call is 0.0
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -193,6 +201,8 @@ class ClientCpuSampler:
     def _run(self):
         # psutil.cpu_percent(interval=...) blocks for `interval` and returns the
         # system-wide utilization over that window, so this loop is self-paced.
+        if psutil is None:
+            return
         while not self._stop.is_set():
             self.samples.append(psutil.cpu_percent(interval=self.interval))
 
@@ -202,7 +212,7 @@ class ClientCpuSampler:
             self._thread.join(timeout=2)
 
     def summary(self):
-        if not _HAS_PSUTIL:
+        if psutil is None:
             return {"available": False}
         if not self.samples:
             return {"available": True, "avg": 0.0, "peak": 0.0, "cores": self.cores}
@@ -996,5 +1006,7 @@ def display_test_summary(agg_metrics, data_size, operation_name, cpu=None):
         avg_dur = agg_metrics.avg_worker_duration()
         skew = agg_metrics.load_skew_percent()
 
-        print(f"  Load Distribution: Min: {min_dur:.2f}s | Max: {max_dur:.2f}s | "
-              f"Avg: {avg_dur:.2f}s | Skew: {skew:.1f}%")
+        print(colored(f"  Load Distribution: Min: {min_dur:.2f}s | Max: {max_dur:.2f}s | "
+              f"Avg: {avg_dur:.2f}s | Skew: {skew:.1f}%"), "cyan")
+
+    print()  # blank line after summary

@@ -38,8 +38,11 @@ import time
 try:
     from termcolor import colored
 except ImportError:  # keep the launcher usable even without termcolor
-    def colored(s, *a, **k):
-        return s
+    # Signature mirrors termcolor.colored (text: object, ...) -> str so the
+    # stand-in is a drop-in replacement for callers and type checkers alike.
+    def colored(text: object, *args, **kwargs) -> str:
+        """No-op stand-in: return the text unstyled."""
+        return str(text)
 
 
 def parse_args():

@@ -18,27 +18,34 @@ import json
 # responses of thousands of items under the GIL. _dumps/_loads route the hot
 # path through orjson when available and fall back to stdlib json otherwise -
 # behavior is identical either way.
+#
+# Each helper is declared once and branches internally on `orjson is None`,
+# rather than being defined twice under try/except. That keeps a single
+# declaration per name (no shadowing for readers or type checkers); the one
+# identity check per call is free next to the HTTP round trip it wraps.
 try:
     import orjson
-
-    def _dumps(obj):
-        # orjson.dumps returns bytes; requests accepts bytes for `data=`.
-        return orjson.dumps(obj)
-
-    def _loads(resp):
-        # Parse straight from the raw response bytes, skipping requests' own
-        # json() machinery (which defers to stdlib json).
-        return orjson.loads(resp.content)
-
-    JSON_IMPL = "orjson"
 except ImportError:
-    def _dumps(obj):
-        return json.dumps(obj)
+    orjson = None
 
-    def _loads(resp):
-        return resp.json()
+JSON_IMPL = "orjson" if orjson is not None else "json"
 
-    JSON_IMPL = "json"
+
+def _dumps(obj):
+    """Serialize a request body. orjson returns bytes; requests accepts bytes for `data=`."""
+    if orjson is not None:
+        return orjson.dumps(obj)
+    return json.dumps(obj)
+
+
+def _loads(resp):
+    """
+    Parse a requests Response body as JSON. With orjson we read straight from the
+    raw response bytes, skipping requests' own json() machinery (stdlib-backed).
+    """
+    if orjson is not None:
+        return orjson.loads(resp.content)
+    return resp.json()
 
 
 # ---------------- CONSTANTS -----------------------------------------------------
