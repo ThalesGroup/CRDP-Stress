@@ -6,10 +6,10 @@
 # is the definitive test for whether a single Python load generator is the wall.
 #
 # Interpretation:
-#   - Aggregate cards/sec scales ~linearly with N        -> the single client
+#   - Aggregate txns/sec scales ~linearly with N         -> the single client
 #     while system CPU climbs toward 100%                    was the bottleneck
 #     (the load host is the wall; add more client hosts).
-#   - Aggregate cards/sec plateaus while host CPU has     -> the wall is
+#   - Aggregate txns/sec plateaus while host CPU has      -> the wall is
 #     headroom                                               downstream
 #     (ingress or backend; proceed to Test B / Test C).
 #
@@ -128,7 +128,7 @@ def main():
     aggregate_phase(results, "protect")
     aggregate_phase(results, "reveal")
 
-    print(colored("\nInterpretation: linear cards/sec scaling vs N (with host CPU -> 100%%) means",
+    print(colored("\nInterpretation: linear txns/sec scaling vs N (with host CPU -> 100%%) means",
                   "white"))
     print(colored("the single client was the wall. A plateau with CPU headroom points downstream",
                   "white"))
@@ -141,11 +141,11 @@ def aggregate_phase(results, phase_key):
     if not phases:
         return
 
-    per_client = [p.get("cards_per_sec", 0) for p in phases]
-    total_cards = sum(p.get("total_cards", 0) for p in phases)
+    per_client = [p.get("txns_per_sec", 0) for p in phases]
+    total_txns = sum(p.get("total_txns", 0) for p in phases)
     sum_of_rates = sum(per_client)
 
-    # Rigorous overlapped-window rate: total cards across all clients divided by
+    # Rigorous overlapped-window rate: total txns across all clients divided by
     # the union wall-clock window (earliest phase start -> latest phase end).
     starts = [p["wall_start_epoch"] for p in phases if p.get("wall_start_epoch")]
     ends = [p["wall_end_epoch"] for p in phases if p.get("wall_end_epoch")]
@@ -154,7 +154,7 @@ def aggregate_phase(results, phase_key):
     if starts and ends:
         window = max(ends) - min(starts)
         if window > 0:
-            window_rate = total_cards / window
+            window_rate = total_txns / window
         # How well did the clients actually overlap? Low overlap weakens the
         # sum-of-rates figure (clients ran staggered, not truly concurrent).
         max_wall = max(p.get("wall_time_sec", 0) for p in phases)
@@ -172,13 +172,13 @@ def aggregate_phase(results, phase_key):
             max(cpu_peaks), cores)
 
     print(colored("  --- %s ---" % phase_key.upper(), "white", attrs=["bold"]))
-    print(colored("  Aggregate throughput (sum of client rates): %s cards/sec"
+    print(colored("  Aggregate throughput (sum of client rates): %s txns/sec"
                   % _fmt(sum_of_rates), "green", attrs=["bold"]))
     if window_rate is not None:
-        print(colored("  Aggregate throughput (overlapped window):    %s cards/sec%s"
+        print(colored("  Aggregate throughput (overlapped window):    %s txns/sec%s"
                       % (_fmt(window_rate), overlap_note), "green"))
-    print("  Total cards: %s across %d clients" % (_fmt(total_cards), len(phases)))
-    print("  Per-client cards/sec: min %s | mean %s | max %s" % (
+    print("  Total txns: %s across %d clients" % (_fmt(total_txns), len(phases)))
+    print("  Per-client txns/sec: min %s | mean %s | max %s" % (
         _fmt(min(per_client)), _fmt(sum_of_rates / len(per_client)), _fmt(max(per_client))))
     if cpu_line:
         print(cpu_line)

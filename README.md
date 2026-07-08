@@ -57,9 +57,9 @@ Usage:
                         is no benefit in idle workers.
 
 -jsonout FILENAME   - (optional) Write a machine-readable JSON results file for run-to-run
-                        comparison. Captures, per phase (PROTECT/REVEAL): throughput in cards/sec,
+                        comparison. Captures, per phase (PROTECT/REVEAL): throughput in txns/sec,
                         MB/s, per-bulk-call latency percentiles (p50/p95/p99/max), a rolling
-                        cards/sec time series, worker load skew, and client-host CPU (avg/peak).
+                        txns/sec time series, worker load skew, and client-host CPU (avg/peak).
                         Useful for the throughput attribution matrix (client vs ingress vs backend).
 
 -label NAME         - (optional) A tag recorded in the -jsonout file to identify the run
@@ -129,7 +129,7 @@ python3 CRDP_Stress.py -endpoint $CRDP_HOST -policy MyPolicy -user alice -csvlis
 
 Measured against the tuned 3-node cluster (48 CPU cores total; 24 CRDP pods with CPU requests and an
 even pod spread — see [crdp-app-svc-ing.yml](CRDP_K8_Deployment/crdp-app-svc-ing.yml)). Two client
-knobs drive throughput: `-batchsize` (cards per bulk REST call) and concurrency. Concurrency comes in
+knobs drive throughput: `-batchsize` (txns per bulk REST call) and concurrency. Concurrency comes in
 two forms — `-threads` (worker threads inside one Python process, capped by the GIL) and **processes**
 (independent OS processes launched by `multi_client.py`, which sidestep the GIL). The optimal mix
 depends on which layer is the bottleneck, and that is decided by the protection policy's cipher:
@@ -145,9 +145,9 @@ depends on which layer is the bottleneck, and that is decided by the protection 
 - **Threads plateau around 20.** Past ~24 the GIL serializes the per-call JSON encode/decode, so extra
   threads add nothing (throughput was flat from 24→48 threads in testing). To go faster, add
   **processes** (via `multi_client.py`), not threads.
-- **FPE_AES is backend-bound** (~650k cards/sec on 48 cores): ~5 client processes fully saturate the
+- **FPE_AES is backend-bound** (~650k txns/sec on 48 cores): ~5 client processes fully saturate the
   cluster and more just contend. Reaching 1M/sec with FPE needs **more nodes**, not more client load.
-- **AES-256-CBC costs roughly half the CPU per card** (~1.3M cards/sec ceiling on the same 48 cores),
+- **AES-256-CBC costs roughly half the CPU per txn** (~1.3M txns/sec ceiling on the same 48 cores),
   so the *load host* becomes the limit. Use one process per physical core, keep `orjson` installed
   (it releases the GIL for JSON), and add load hosts to reach the ceiling.
 

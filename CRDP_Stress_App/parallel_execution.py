@@ -108,8 +108,8 @@ class AggregatedMetrics:
         """Per-bulk-call wall times in seconds."""
         return [end - start for start, end, _ in self.all_call_records()]
 
-    def cards_per_sec(self):
-        """Primary throughput metric: items (credit cards) processed per second."""
+    def txns_per_sec(self):
+        """Primary throughput metric: transactions (items) processed per second."""
         dur = self.overall_duration()
         return (self.total_items / dur) if dur > 0 else 0
 
@@ -119,7 +119,7 @@ class AggregatedMetrics:
 
     def rolling_throughput(self, bucket=1.0):
         """
-        Cards/sec time series: bucket completed items by their call-end time into
+        Txns/sec time series: bucket completed items by their call-end time into
         `bucket`-second bins (relative to overall_start). Exposes ramp, steady
         state, and collapse that a single wall-clock average hides.
         """
@@ -242,18 +242,18 @@ def build_phase_record(agg_metrics, data_size, cpu, operation_name):
     pct = agg_metrics.latency_percentiles()
     return {
         "operation": operation_name,
-        "total_cards": agg_metrics.total_items,
+        "total_txns": agg_metrics.total_items,
         "wall_time_sec": dur,
         "wall_start_epoch": agg_metrics.overall_start,
         "wall_end_epoch": agg_metrics.overall_end,
-        "cards_per_sec": agg_metrics.cards_per_sec(),
+        "txns_per_sec": agg_metrics.txns_per_sec(),
         "mb_per_sec": (data_size / dur / 1_000_000) if dur > 0 else 0,
         "data_size_bytes": data_size,
         "num_bulk_calls": len(agg_metrics.all_call_records()),
         "workers": len(agg_metrics.worker_metrics),
         "load_skew_pct": agg_metrics.load_skew_percent(),
         "latency_ms": {k: v * 1000 for k, v in pct.items()},
-        "rolling_cards_per_sec": agg_metrics.rolling_throughput(),
+        "rolling_txns_per_sec": agg_metrics.rolling_throughput(),
         "client_cpu": cpu.summary() if cpu is not None else {"available": False},
     }
 
@@ -952,11 +952,11 @@ def display_test_summary(agg_metrics, data_size, operation_name, cpu=None):
 
     print(colored(outStr, "green", attrs=["bold"]))
 
-    # Primary throughput metric: cards (iterations) per second - the goal unit.
-    cps = agg_metrics.cards_per_sec()
+    # Primary throughput metric: transactions (iterations) per second - the goal unit.
+    tps = agg_metrics.txns_per_sec()
     print(colored(
-        f"  Throughput: {cps:,.0f} cards/sec  "
-        f"({agg_metrics.total_items:,} cards in {overall_time:.2f}s)",
+        f"  Throughput: {tps:,.0f} txns/sec  "
+        f"({agg_metrics.total_items:,} txns in {overall_time:.2f}s)",
         "cyan", attrs=["bold"]))
 
     # Per-bulk-call latency distribution. Most informative at small batch sizes;
@@ -973,7 +973,7 @@ def display_test_summary(agg_metrics, data_size, operation_name, cpu=None):
     rolling = agg_metrics.rolling_throughput()
     if rolling:
         print(colored(
-            f"  Rolling cards/sec: peak {max(rolling):,.0f} | "
+            f"  Rolling txns/sec: peak {max(rolling):,.0f} | "
             f"mean {sum(rolling)/len(rolling):,.0f} | min {min(rolling):,.0f}",
             "cyan"))
 

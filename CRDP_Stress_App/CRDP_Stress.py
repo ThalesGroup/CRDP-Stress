@@ -73,7 +73,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "-jsonout", nargs=1, action="store", required=False, dest="jsonout",
-    help="Write machine-readable results (cards/sec, latency percentiles, rolling throughput, client CPU) to this JSON file for run-to-run comparison"
+    help="Write machine-readable results (txns/sec, latency percentiles, rolling throughput, client CPU) to this JSON file for run-to-run comparison"
 )
 parser.add_argument(
     "-label", nargs=1, action="store", required=False, dest="label",
@@ -400,7 +400,7 @@ if len(payloadFile) > 0:
 print(colored("\n==================== CRDP Test Summary ====================", "white", attrs=["bold"]))
 
 # Both paths now produce an AggregatedMetrics, so the summary (MB/s plus the
-# cards/sec, latency, rolling-throughput, and client-CPU attribution lines) is
+# txns/sec, latency, rolling-throughput, and client-CPU attribution lines) is
 # rendered the same way whether the run was sequential or parallel.
 display_test_summary(protect_agg_metrics, data_size, "PROTECT", protect_cpu)
 display_test_summary(reveal_agg_metrics, data_size, "REVEAL", reveal_cpu)
