@@ -230,7 +230,10 @@ def main():
              "noisy-neighbor variance once cores are dedicated.\n"
              "- **Topology spread** (maxSkew 1) to keep pods balanced across nodes.\n"
              "- **Client:** batch ~5,000, ~20 threads/process, `orjson` installed; scale with client processes.\n"
-             "- Optionally an **HPA** on CPU once requests/limits are set.\n")
+             "- Optionally a **Horizontal Pod Autoscaler (HPA)** on CPU once requests/limits are set. An HPA "
+             "scales replicas against CPU as a percentage of the pod's CPU *request*, so it only behaves "
+             "sensibly once requests are correct and cores are dedicated — on over-committed VMs it chases "
+             "steal-distorted CPU readings.\n")
 
     # ---------------- Appendix ----------------
     L.append("## Appendix\n")
