@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
-# Expose RKE2 control-plane metrics to the LAN so the external Prometheus
-# (192.168.1.186) can scrape them. RKE2 binds etcd (:2381), kube-scheduler
-# (:10259), kube-controller-manager (:10257) and kube-proxy (:10249) to
-# 127.0.0.1 by default; this rewrites their bind addresses.
+# Expose RKE2 control-plane metrics so an external Prometheus can scrape them.
+# RKE2 binds etcd (:2381), kube-scheduler (:10259), kube-controller-manager
+# (:10257) and kube-proxy (:10249) to 127.0.0.1 by default; this rewrites their
+# bind addresses. It also sets the kubelet's cAdvisor housekeeping interval to 5s.
 #
-#   sudo ./apply_rke2_metrics.sh server    # on kube
-#   sudo ./apply_rke2_metrics.sh agent     # on sphere, cone
+#   sudo ./apply_rke2_metrics.sh server    # on the RKE2 server (control-plane) node
+#   sudo ./apply_rke2_metrics.sh agent     # on each RKE2 agent (worker) node
 #   sudo ./apply_rke2_metrics.sh rollback  # restore the newest backup
 #
-# Idempotent: our keys live in a delimited block that is stripped and rewritten
-# on every run, so re-running never duplicates YAML keys. Everything outside the
-# block (on agents: `server:` and the cluster join `token:`) is left untouched.
+# Idempotent: the added keys live in a delimited block that is stripped and
+# rewritten on every run, so re-running never duplicates YAML keys. Everything
+# outside the block -- on agents, `server:` and the cluster join `token:` -- is
+# left untouched.
 #
 # Restarting rke2 bounces kubelet and containerd, but containerd shims keep
-# running containers alive across the restart -- CRDP pods should show zero
-# added restarts. The script verifies that. Do not run during a benchmark.
+# running containers alive across the restart, so CRDP pods should show zero
+# added restarts. Verify that afterwards. Do not run during a benchmark.
 set -euo pipefail
 
 CFG=/etc/rancher/rke2/config.yaml
@@ -73,7 +74,7 @@ fi
   # interval -- scraping faster merely re-ingests an identical (ts, value) pair.
   # At the default, rate(...[15s]) over a 20s benchmark phase returns nothing for
   # most pods, because a pod needs two DISTINCT samples inside the window.
-  # 5s matches our scrape interval and costs a negligible amount of CPU.
+  # 5s matches the scrape interval and costs a negligible amount of CPU.
   printf 'kubelet-arg:\n  - "housekeeping-interval=5s"\n'
   if [ "$ROLE" = server ]; then
     printf 'etcd-expose-metrics: true\n'

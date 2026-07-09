@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
-# Install node_exporter on the load-generation client cm-neptune (192.168.1.193).
+# Install node_exporter on a Debian/Ubuntu host that is NOT a Kubernetes node --
+# typically the host that runs the CRDP stress client.
 #
-# cm-neptune is NOT a Kubernetes node, so the DaemonSet in ../k8s/ does not cover
-# it. We install the distro package (systemd) rather than the Docker image so the
-# host's container runtime stays idle during benchmark runs -- cm-neptune drives
-# the load, and we do not want a container competing for its 16 vCPUs.
+# The DaemonSet in ../k8s/ covers every cluster node. It does not cover the load
+# client, which needs monitoring for two reasons:
 #
-# Why the load client needs monitoring at all: the throughput report has to prove
-# runs are backend-bound, not client-bound. node_exporter gives host CPU and
-# node_cpu_seconds_total{mode="steal"} -- cm-neptune shares hypervisor "Lemonade"
-# with cluster node `cone`, so its steal directly biases cone's pods.
+#   * A throughput result only means something if the BACKEND was the bottleneck.
+#     If the load client's CPU is pegged, you measured your load generator.
+#   * node_cpu_seconds_total{mode="steal"} shows hypervisor contention. If the
+#     load client shares a hypervisor with a cluster node, generating load steals
+#     cycles from that node's own CRDP pods.
 #
-#   ssh rrobinson@cm-neptune.test256.io 'bash -s' < install_cm_neptune.sh
+# Installs the distro package (systemd) rather than the Docker image, so the
+# client's container runtime stays idle during a run.
+#
+# Requires passwordless sudo. Safe to re-run.
+#
+#   ssh USER@LOAD_CLIENT_IP 'bash -s' < install_node_exporter.sh
 set -euo pipefail
 
 echo "==> installing prometheus-node-exporter"

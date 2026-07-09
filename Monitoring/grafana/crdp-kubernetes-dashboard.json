@@ -3,25 +3,42 @@
     {
       "name": "DS_PROMETHEUS",
       "label": "Prometheus",
-      "description": "The Prometheus that scrapes the CRDP cluster (prometheus.test256.io:9090)",
+      "description": "The Prometheus server that scrapes the CRDP cluster",
       "type": "datasource",
       "pluginId": "prometheus",
       "pluginName": "Prometheus"
     }
   ],
   "__requires": [
-    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "11.0.0" },
-    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" }
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "11.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    }
   ],
   "title": "CRDP / Kubernetes — Benchmark & Health",
   "uid": "crdp-k8s-bench",
-  "description": "Live view of the CRDP deployment: per-pod CPU from cAdvisor, node saturation and CPU steal from node_exporter, pod state from kube-state-metrics, and RKE2 control-plane health. Panels mirror the quantities used in results/report.md.",
-  "tags": ["crdp", "kubernetes", "benchmark"],
+  "description": "Live view of a CRDP deployment: per-pod CPU from cAdvisor, node saturation and CPU steal from node_exporter, pod state from kube-state-metrics, and RKE2 control-plane health.",
+  "tags": [
+    "crdp",
+    "kubernetes",
+    "benchmark"
+  ],
   "timezone": "browser",
   "editable": true,
   "schemaVersion": 39,
   "refresh": "10s",
-  "time": { "from": "now-30m", "to": "now" },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
   "templating": {
     "list": [
       {
@@ -29,7 +46,20 @@
         "label": "CRDP pod regex",
         "type": "textbox",
         "query": "crdp-deployment-.*",
-        "current": { "text": "crdp-deployment-.*", "value": "crdp-deployment-.*" }
+        "current": {
+          "text": "crdp-deployment-.*",
+          "value": "crdp-deployment-.*"
+        }
+      },
+      {
+        "name": "load_client",
+        "label": "Load client node label",
+        "type": "textbox",
+        "query": "load-client",
+        "current": {
+          "text": "load-client",
+          "value": "load-client"
+        }
       }
     ]
   },
@@ -37,16 +67,29 @@
     {
       "type": "row",
       "title": "CRDP workload (cAdvisor)",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "collapsed": false,
       "panels": []
     },
     {
       "type": "stat",
       "title": "CRDP CPU in use (cores)",
-      "description": "sum of rate(container_cpu_usage_seconds_total). The sizing input: txns/sec ÷ this = tps/core. Report measured 43.5 cores for digits PROTECT.",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 6, "w": 5, "x": 0, "y": 1 },
+      "description": "sum of rate(container_cpu_usage_seconds_total). The sizing input: measured txns/sec divided by this gives txns/sec per core, which is what determines how many cores a target throughput needs. Thresholds assume a 3 x 16-vCPU cluster; adjust for yours.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 5,
+        "x": 0,
+        "y": 1
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "none",
@@ -55,19 +98,39 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 32 },
-              { "color": "red", "value": 43 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 32
+              },
+              {
+                "color": "red",
+                "value": 43
+              }
             ]
           }
         },
         "overrides": []
       },
-      "options": { "graphMode": "area", "colorMode": "value", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "expr": "sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\", pod=~\"$pod_regex\", container!=\"\"}[1m]))",
           "legendFormat": "cores"
         }
@@ -76,14 +139,39 @@
     {
       "type": "stat",
       "title": "CRDP pods Running",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 6, "w": 3, "x": 5, "y": 1 },
-      "fieldConfig": { "defaults": { "unit": "none", "decimals": 0 }, "overrides": [] },
-      "options": { "graphMode": "none", "colorMode": "value", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 3,
+        "x": 5,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "none",
+        "colorMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "expr": "count(kube_pod_info{pod=~\"$pod_regex\"})",
           "legendFormat": "pods"
         }
@@ -93,21 +181,52 @@
       "type": "stat",
       "title": "CRDP container restarts",
       "description": "A restart mid-run invalidates a benchmark. Should stay at 0.",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 6, "w": 3, "x": 8, "y": 1 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 3,
+        "x": 8,
+        "y": 1
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "none",
           "decimals": 0,
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": { "graphMode": "none", "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "options": {
+        "graphMode": "none",
+        "colorMode": "background",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "expr": "sum(kube_pod_container_status_restarts_total{pod=~\"$pod_regex\"})",
           "legendFormat": "restarts"
         }
@@ -116,18 +235,46 @@
     {
       "type": "timeseries",
       "title": "CRDP cores by node",
-      "description": "Each node has 16 vCPU. Compare against the 'node busy %' panel: if cores are far below busy%, something other than CRDP is consuming the node.",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 6, "w": 13, "x": 11, "y": 1 },
+      "description": "Compare against the 'node busy %' panel. If cores sit far below busy%, something other than CRDP is consuming the node.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 13,
+        "x": 11,
+        "y": 1
+      },
       "fieldConfig": {
-        "defaults": { "unit": "none", "decimals": 1, "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" } },
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] } },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        }
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "expr": "sum by (node) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\", pod=~\"$pod_regex\", container!=\"\"}[1m]))",
           "legendFormat": "{{node}}"
         }
@@ -136,18 +283,43 @@
     {
       "type": "timeseries",
       "title": "CRDP CPU per pod (cores)",
-      "description": "Verifies the topologySpreadConstraints / ClusterIP round-robin are actually balancing work. Wide spread = imbalance.",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 7 },
+      "description": "Verifies that topologySpreadConstraints and Service round-robin are actually balancing work. A wide spread means they are not.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 7
+      },
       "fieldConfig": {
-        "defaults": { "unit": "none", "decimals": 2, "custom": { "lineWidth": 1, "fillOpacity": 0, "showPoints": "never" } },
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never"
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        }
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\", pod=~\"$pod_regex\", container!=\"\"}[1m]))",
           "legendFormat": "{{pod}}"
         }
@@ -156,17 +328,43 @@
     {
       "type": "timeseries",
       "title": "CRDP memory working set per node",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 7 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 7
+      },
       "fieldConfig": {
-        "defaults": { "unit": "bytes", "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" } },
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["max"] } },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "max"
+          ]
+        }
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "expr": "sum by (node) (container_memory_working_set_bytes{job=\"cadvisor\", pod=~\"$pod_regex\", container!=\"\"})",
           "legendFormat": "{{node}}"
         }
@@ -175,7 +373,12 @@
     {
       "type": "row",
       "title": "Saturation & CPU steal (node_exporter)",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
       "collapsed": false,
       "panels": []
     },
@@ -183,21 +386,64 @@
       "type": "timeseries",
       "title": "Node busy % — is the backend saturated?",
       "description": "Backend nodes above ~90% means the run is backend-bound (the real ceiling). The report's digits PROTECT run sat at 92%.",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 15
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "percent", "min": 0, "max": 100, "decimals": 1,
-          "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" },
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 80 }, { "color": "red", "value": 92 } ] }
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "decimals": 1,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 92
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] } },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        }
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "expr": "100 - avg by (node) (rate(node_cpu_seconds_total{job=\"node-exporter\", mode=\"idle\"}[1m])) * 100",
           "legendFormat": "{{node}}"
         }
@@ -206,22 +452,64 @@
     {
       "type": "timeseries",
       "title": "CPU steal % — a vCPU is not a physical core",
-      "description": "cm-neptune shares hypervisor 'Lemonade' with node cone, so driving load steals cycles from cone's CRDP pods. Measured 7.26% on cone during a REVEAL phase.",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "description": "Steal is time a vCPU was runnable while the hypervisor ran someone else. If the load client shares a hypervisor with a cluster node, generating load steals cycles from that node's CRDP pods. Sustained steal above a few percent means per-core efficiency understates the hardware.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 15
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "percent", "min": 0, "decimals": 2,
-          "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" },
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 3 }, { "color": "red", "value": 8 } ] }
+          "unit": "percent",
+          "min": 0,
+          "decimals": 2,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 8
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] } },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        }
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "expr": "avg by (node) (rate(node_cpu_seconds_total{job=\"node-exporter\", mode=\"steal\"}[1m])) * 100",
           "legendFormat": "{{node}}"
         }
@@ -229,43 +517,102 @@
     },
     {
       "type": "gauge",
-      "title": "Load client cm-neptune — CPU busy %",
-      "description": "If this pegs, you are measuring the load generator, not CRDP. Report runs peaked near 36%.",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 7, "w": 6, "x": 0, "y": 23 },
+      "title": "Load client — CPU busy %",
+      "description": "If this pegs, you are measuring the load generator, not CRDP. Set the load_client variable to your load host's `node` label.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 0,
+        "y": 23
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "percent", "min": 0, "max": 100, "decimals": 1,
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 70 }, { "color": "red", "value": 90 } ] }
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "100 - avg(rate(node_cpu_seconds_total{job=\"node-exporter\", node=\"cm-neptune\", mode=\"idle\"}[1m])) * 100",
-          "legendFormat": "cm-neptune"
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "100 - avg(rate(node_cpu_seconds_total{job=\"node-exporter\", node=\"$load_client\", mode=\"idle\"}[1m])) * 100",
+          "legendFormat": "$load_client"
         }
       ]
     },
     {
       "type": "timeseries",
-      "title": "cm-neptune memory available",
-      "description": "Per-client iterations (not batch size) drive RSS. 8 clients x 3M iterations OOM-killed a client; keep iterations <= 1.5M.",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 7, "w": 9, "x": 6, "y": 23 },
+      "title": "Load client — memory available",
+      "description": "Per-client iterations, not batch size, drive RSS. Too many iterations per client will OOM-kill it.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 9,
+        "x": 6,
+        "y": 23
+      },
       "fieldConfig": {
-        "defaults": { "unit": "bytes", "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" } },
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "node_memory_MemAvailable_bytes{job=\"node-exporter\", node=\"cm-neptune\"}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "node_memory_MemAvailable_bytes{job=\"node-exporter\", node=\"$load_client\"}",
           "legendFormat": "MemAvailable"
         }
       ]
@@ -273,17 +620,44 @@
     {
       "type": "timeseries",
       "title": "Node load average (1m)",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 7, "w": 9, "x": 15, "y": 23 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 9,
+        "x": 15,
+        "y": 23
+      },
       "fieldConfig": {
-        "defaults": { "unit": "none", "decimals": 1, "custom": { "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" } },
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never"
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["max"] } },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "max"
+          ]
+        }
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "expr": "node_load1{job=\"node-exporter\"}",
           "legendFormat": "{{node}}"
         }
@@ -292,7 +666,12 @@
     {
       "type": "row",
       "title": "RKE2 control plane",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 30 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
       "collapsed": false,
       "panels": []
     },
@@ -300,17 +679,40 @@
       "type": "timeseries",
       "title": "etcd WAL fsync p99",
       "description": "Should be flat during a CRDP benchmark: the pod set is static and the data path never touches etcd. This panel exists to PROVE the control plane is not the bottleneck.",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 31 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 31
+      },
       "fieldConfig": {
-        "defaults": { "unit": "s", "custom": { "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" } },
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never"
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "expr": "histogram_quantile(0.99, sum by (le) (rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m])))",
           "legendFormat": "p99 fsync"
         }
@@ -319,17 +721,46 @@
     {
       "type": "timeseries",
       "title": "apiserver request rate by verb",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 31 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 31
+      },
       "fieldConfig": {
-        "defaults": { "unit": "reqps", "custom": { "lineWidth": 1, "fillOpacity": 10, "showPoints": "never", "stacking": { "mode": "normal" } } },
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean"] } },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean"
+          ]
+        }
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "expr": "sum by (verb) (rate(apiserver_request_total[1m]))",
           "legendFormat": "{{verb}}"
         }
@@ -338,23 +769,50 @@
     {
       "type": "timeseries",
       "title": "Scheduler pending pods / controller work-queue depth",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 31 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 31
+      },
       "fieldConfig": {
-        "defaults": { "unit": "none", "decimals": 0, "custom": { "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" } },
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never"
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "expr": "sum(scheduler_pending_pods)",
           "legendFormat": "pending pods"
         },
         {
           "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "expr": "sum(workqueue_depth{job=\"kube-controller-manager\"})",
           "legendFormat": "ctrl-mgr queue depth"
         }
@@ -363,25 +821,60 @@
     {
       "type": "row",
       "title": "Scrape health",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 38 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 38
+      },
       "collapsed": false,
       "panels": []
     },
     {
       "type": "timeseries",
-      "title": "Targets up by job (should be flat at 20 total)",
-      "description": "node-exporter 4, cadvisor 3, kubelet 3, kube-proxy 3, etcd/scheduler/controller-manager/apiserver/kube-state-metrics/CM-Kirk/prometheus 1 each.",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 39 },
+      "title": "Targets up by job (should be flat)",
+      "description": "On a three-node cluster: node-exporter 4 (nodes + load client), cadvisor 3, kubelet 3, kube-proxy 3, and one each of etcd, kube-scheduler, kube-controller-manager, kube-apiserver, kube-state-metrics and prometheus.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 39
+      },
       "fieldConfig": {
-        "defaults": { "unit": "none", "decimals": 0, "custom": { "lineWidth": 1, "fillOpacity": 20, "showPoints": "never", "stacking": { "mode": "normal" } } },
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 20,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull"] } },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "expr": "count by (job) (up == 1)",
           "legendFormat": "{{job}}"
         }

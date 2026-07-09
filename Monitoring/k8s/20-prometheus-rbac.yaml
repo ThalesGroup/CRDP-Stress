@@ -1,5 +1,5 @@
-# Identity for the OFF-CLUSTER Prometheus (192.168.1.186) to scrape kubelet,
-# cAdvisor, the apiserver, the scheduler and the controller-manager.
+# Identity for an OFF-CLUSTER Prometheus to scrape kubelet, cAdvisor, the
+# apiserver, the scheduler and the controller-manager.
 #
 # Those endpoints all require authn/authz; only node_exporter, etcd, kube-proxy
 # and kube-state-metrics are unauthenticated.

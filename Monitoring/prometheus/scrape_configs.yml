@@ -1,59 +1,71 @@
-# Scrape jobs to append to /etc/prometheus/prometheus.yml on prometheus.test256.io
-# (192.168.1.186), under the existing top-level `scrape_configs:` key.
+# Scrape jobs for monitoring a CRDP deployment on RKE2.
 #
-# This file is a TEMPLATE. `__K8S_TOKEN__` must be replaced with the Kubernetes
-# ServiceAccount token before use:
+# This is a TEMPLATE. Copy the jobs below into the `scrape_configs:` list of your
+# prometheus.yml, then replace every placeholder:
 #
-#   TOKEN=$(kubectl -n monitoring get secret prometheus-token \
-#             -o jsonpath='{.data.token}' | base64 -d)
-#   sed "s|__K8S_TOKEN__|$TOKEN|g" scrape_configs.yml > /tmp/jobs.yml
+#   __CONTROL_PLANE_IP__   the RKE2 server node (control plane + etcd)
+#   __WORKER_1_IP__        an RKE2 agent node
+#   __WORKER_2_IP__        an RKE2 agent node
+#   __LOAD_CLIENT_IP__     the host that runs the stress client (not a cluster node)
+#   __K8S_TOKEN__          the Prometheus ServiceAccount token (see below)
 #
-# The rendered file contains a credential -- never commit it.
+# Add or remove worker entries to match your cluster. Scale the `node-exporter`,
+# `cadvisor`, `kubelet` and `kube-proxy` jobs to every node you run.
 #
-# Why the token is inlined (`authorization.credentials`) rather than pointed at
-# via `credentials_file`: on 192.168.1.186 only the single FILE
-# /etc/prometheus/prometheus.yml is bind-mounted into the container, not its
-# directory, so a sibling token file would be invisible inside the container.
-# Inlining matches what the pre-existing CM-Kirk job already does.
+# Get the token after applying ../k8s/:
 #
-# Prometheus there runs WITHOUT --web.enable-lifecycle, so `POST /-/reload` is
-# unavailable. Apply changes with `sudo docker restart <prometheus-container>`;
-# the TSDB lives in a named volume, so no samples are lost.
+#   kubectl -n monitoring get secret prometheus-token \
+#     -o jsonpath='{.data.token}' | base64 -d
 #
-# Targets are IPs, not *.test256.io names: corporate DNS returns NXDOMAIN for
-# that zone, and the container resolves via the Docker daemon's resolver. A
-# `node` label carries the friendly name for queries and dashboards.
+# Render with sed, for example:
+#
+#   sed -e "s|__CONTROL_PLANE_IP__|10.0.0.11|g" \
+#       -e "s|__WORKER_1_IP__|10.0.0.12|g" \
+#       -e "s|__WORKER_2_IP__|10.0.0.13|g" \
+#       -e "s|__LOAD_CLIENT_IP__|10.0.0.20|g" \
+#       -e "s|__K8S_TOKEN__|$TOKEN|g" \
+#       scrape_configs.yml > rendered.yml
+#
+# THE RENDERED FILE CONTAINS A CREDENTIAL. Do not commit it. .gitignore already
+# excludes *.token, k8s-token and scrape_configs.rendered.yml.
+#
+# Why the token is inlined (`authorization.credentials`) rather than referenced
+# with `credentials_file`: if Prometheus runs in a container that bind-mounts only
+# the prometheus.yml FILE, a sibling token file is invisible inside the container.
+# Inlining always works. If you bind-mount the whole directory, `credentials_file`
+# is the better choice because the token never appears in the config.
+#
+# Targets are written as IP addresses so that scraping does not depend on the
+# Prometheus host's DNS. A `node` label carries the friendly name used by the
+# queries in ../promql/benchmark_queries.md and the Grafana dashboard.
 
-  # ---- Hosts: CPU (incl. steal), memory, disk, network ----------------------
-  # Covers the three cluster nodes AND the load client cm-neptune, which is not
-  # part of the cluster. 5s interval: benchmark runs are short and we need
-  # resolution finer than the 15s global default.
+  # ---- Hosts: CPU (including steal), memory, disk, network -------------------
+  # Covers every cluster node AND the load-generating client, which is not part
+  # of the cluster. 5s interval: benchmark phases are short and need resolution
+  # finer than the usual 15s global default.
   - job_name: "node-exporter"
     scrape_interval: 5s
     static_configs:
-      - targets: ["192.168.1.188:9100"]
-        labels: {node: "kube",       role: "control-plane"}
-      - targets: ["192.168.1.187:9100"]
-        labels: {node: "sphere",     role: "worker"}
-      - targets: ["192.168.1.189:9100"]
-        labels: {node: "cone",       role: "worker"}
-      - targets: ["192.168.1.193:9100"]
-        labels: {node: "cm-neptune", role: "load-client"}
+      - targets: ["__CONTROL_PLANE_IP__:9100"]
+        labels: {node: "control-plane", role: "control-plane"}
+      - targets: ["__WORKER_1_IP__:9100"]
+        labels: {node: "worker-1",      role: "worker"}
+      - targets: ["__WORKER_2_IP__:9100"]
+        labels: {node: "worker-2",      role: "worker"}
+      - targets: ["__LOAD_CLIENT_IP__:9100"]
+        labels: {node: "load-client",   role: "load-client"}
 
-  # ---- cAdvisor: per-pod CPU, the metric the throughput report depends on ----
-  # container_cpu_usage_seconds_total is a COUNTER, so rate() over it has no lag.
-  # metrics-server (`kubectl top`) lags 15-25s and silently corrupted an earlier
-  # aggregation -- a CPU peak landed after the load had already stopped.
+  # ---- cAdvisor: per-pod CPU -------------------------------------------------
+  # container_cpu_usage_seconds_total is a COUNTER, so rate() over it is exact and
+  # has none of the 15-25s reporting lag of metrics-server (`kubectl top`).
   #
-  # honor_timestamps: false is REQUIRED, not cosmetic. cAdvisor stamps each sample
-  # with its own collection time, and Prometheus honors that by default -- so
-  # scraping every 5s just re-ingests an identical (timestamp, value) pair and the
-  # effective resolution collapses to the kubelet's cAdvisor housekeeping interval.
-  # Measured on this cluster before tuning: the counter advanced once per ~12.6s,
-  # so rate(...[15s]) over a 22s PROTECT phase returned data for only 2 of 24 pods.
-  # We fix it at both ends: housekeeping-interval=5s (Monitoring/rke2/) makes the
-  # samples genuinely fresh, and honor_timestamps: false makes Prometheus stamp
-  # them at scrape time so a stalled collector cannot masquerade as a flat counter.
+  # honor_timestamps: false is required, not cosmetic. cAdvisor stamps each sample
+  # with its own collection time and Prometheus honors that by default, so scraping
+  # every 5s merely re-ingests an identical (timestamp, value) pair. The effective
+  # resolution becomes the kubelet's cAdvisor housekeeping interval -- 10s by
+  # default. At that cadence rate(...[15s]) over a 22s phase yields nothing for most
+  # pods, because a pod needs two DISTINCT samples inside the window. Fix it at both
+  # ends: set housekeeping-interval=5s (../rke2/) and disable honor_timestamps here.
   - job_name: "cadvisor"
     scrape_interval: 5s
     honor_timestamps: false
@@ -65,12 +77,12 @@
       type: Bearer
       credentials: "__K8S_TOKEN__"
     static_configs:
-      - targets: ["192.168.1.188:10250"]
-        labels: {node: "kube"}
-      - targets: ["192.168.1.187:10250"]
-        labels: {node: "sphere"}
-      - targets: ["192.168.1.189:10250"]
-        labels: {node: "cone"}
+      - targets: ["__CONTROL_PLANE_IP__:10250"]
+        labels: {node: "control-plane"}
+      - targets: ["__WORKER_1_IP__:10250"]
+        labels: {node: "worker-1"}
+      - targets: ["__WORKER_2_IP__:10250"]
+        labels: {node: "worker-2"}
 
   # ---- kubelet's own metrics -------------------------------------------------
   - job_name: "kubelet"
@@ -82,21 +94,21 @@
       type: Bearer
       credentials: "__K8S_TOKEN__"
     static_configs:
-      - targets: ["192.168.1.188:10250"]
-        labels: {node: "kube"}
-      - targets: ["192.168.1.187:10250"]
-        labels: {node: "sphere"}
-      - targets: ["192.168.1.189:10250"]
-        labels: {node: "cone"}
+      - targets: ["__CONTROL_PLANE_IP__:10250"]
+        labels: {node: "control-plane"}
+      - targets: ["__WORKER_1_IP__:10250"]
+        labels: {node: "worker-1"}
+      - targets: ["__WORKER_2_IP__:10250"]
+        labels: {node: "worker-2"}
 
   # ---- Kubernetes object state (pod phase, replicas, requests/limits) --------
   - job_name: "kube-state-metrics"
     static_configs:
-      - targets: ["192.168.1.188:30080"]
+      - targets: ["__CONTROL_PLANE_IP__:30080"]
 
   # ---- Control plane ---------------------------------------------------------
-  # These four require Monitoring/rke2/apply_rke2_metrics.sh to have been run;
-  # RKE2 binds them to 127.0.0.1 out of the box.
+  # These four require ../rke2/apply_rke2_metrics.sh to have been run. RKE2 binds
+  # them to 127.0.0.1 out of the box, so they are unreachable until you change it.
   - job_name: "kube-apiserver"
     scheme: https
     tls_config:
@@ -105,13 +117,13 @@
       type: Bearer
       credentials: "__K8S_TOKEN__"
     static_configs:
-      - targets: ["192.168.1.188:6443"]
-        labels: {node: "kube"}
+      - targets: ["__CONTROL_PLANE_IP__:6443"]
+        labels: {node: "control-plane"}
 
   - job_name: "etcd"
     static_configs:
-      - targets: ["192.168.1.188:2381"]
-        labels: {node: "kube"}
+      - targets: ["__CONTROL_PLANE_IP__:2381"]
+        labels: {node: "control-plane"}
 
   - job_name: "kube-scheduler"
     scheme: https
@@ -121,8 +133,8 @@
       type: Bearer
       credentials: "__K8S_TOKEN__"
     static_configs:
-      - targets: ["192.168.1.188:10259"]
-        labels: {node: "kube"}
+      - targets: ["__CONTROL_PLANE_IP__:10259"]
+        labels: {node: "control-plane"}
 
   - job_name: "kube-controller-manager"
     scheme: https
@@ -132,14 +144,29 @@
       type: Bearer
       credentials: "__K8S_TOKEN__"
     static_configs:
-      - targets: ["192.168.1.188:10257"]
-        labels: {node: "kube"}
+      - targets: ["__CONTROL_PLANE_IP__:10257"]
+        labels: {node: "control-plane"}
 
   - job_name: "kube-proxy"
     static_configs:
-      - targets: ["192.168.1.188:10249"]
-        labels: {node: "kube"}
-      - targets: ["192.168.1.187:10249"]
-        labels: {node: "sphere"}
-      - targets: ["192.168.1.189:10249"]
-        labels: {node: "cone"}
+      - targets: ["__CONTROL_PLANE_IP__:10249"]
+        labels: {node: "control-plane"}
+      - targets: ["__WORKER_1_IP__:10249"]
+        labels: {node: "worker-1"}
+      - targets: ["__WORKER_2_IP__:10249"]
+        labels: {node: "worker-2"}
+
+  # ---- CipherTrust Manager (the key manager) ---------------------------------
+  # Optional but recommended: it confirms the key manager is not on the CRDP
+  # per-transaction path. Requires a non-expiring metrics token; see
+  # CIPHERTRUST_MANAGER_METRICS.md. Replace __KEY_MANAGER_HOST__ and __CM_TOKEN__,
+  # or delete this job if you do not want to monitor the key manager.
+  #
+  # - job_name: "ciphertrust-manager"
+  #   scheme: https
+  #   metrics_path: /api/v1/system/metrics/prometheus
+  #   tls_config:
+  #     insecure_skip_verify: true
+  #   bearer_token: "__CM_TOKEN__"
+  #   static_configs:
+  #     - targets: ["__KEY_MANAGER_HOST__"]

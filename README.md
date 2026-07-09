@@ -17,12 +17,27 @@ CRDP_K8_Deployment/   # Kubernetes manifests + deploy script for CRDP
   crdp-app-svc-ing.yml
   crdp-ingress.yml
   makeSecretandDeploy.sh
+Monitoring/           # Prometheus + Grafana observability for the deployment
+  README.md             # start here: install guide
+  k8s/                  # node-exporter, kube-state-metrics, Prometheus RBAC
+  rke2/                 # exposes RKE2 control-plane metrics
+  prometheus/           # scrape-job template
+  grafana/              # CRDP dashboard + import instructions
+  promql/               # the queries behind each panel
+benchmark/            # multi-host benchmark harness and reporting pipeline
+  spread_launcher.py    # drives load across several node endpoints
+  aggregate_profile.py  # per-profile summary (throughput, latency, cores, steal)
+  prom_snapshot.py      # rebuilds backend metrics from Prometheus
+  sizing.py             # cores required to hit a target throughput
 Test_Data/            # Sample inputs for -payload / -csvlist
   RAM_Image.jpg
   plaintext.txt
   plaintext.zip
   testpatterns.csv
 ```
+
+Measuring throughput is only half the job — to know *why* a number is what it is, and what to add to
+improve it, you need per-pod CPU, node saturation and CPU steal. See [Monitoring/](Monitoring/README.md).
 
 Usage:
 **py CRDP_Stress.py [-h] -endpoint ENDPOINTCRDP -policy PROTECTIONPOLICY [-iterations ITERATIONS] -user USERNAME [-batchsize BATCHSIZE] [-charset {ALPHANUMERIC, DIGITSONLY, PRINTABLEASCII}] [-threads THREADCOUNT] [-jsonout FILENAME] [-label NAME] [-payload FILENAME | -csvlist FILENAME]** where:
@@ -60,7 +75,8 @@ Usage:
                         comparison. Captures, per phase (PROTECT/REVEAL): throughput in txns/sec,
                         MB/s, per-bulk-call latency percentiles (p50/p95/p99/max), a rolling
                         txns/sec time series, worker load skew, and client-host CPU (avg/peak).
-                        Useful for the throughput attribution matrix (client vs ingress vs backend).
+                        Consumed by the tooling in `benchmark/`, and useful for determining whether
+                        the client, the ingress, or the backend is the bottleneck.
 
 -label NAME         - (optional) A tag recorded in the -jsonout file to identify the run
                         (e.g. `testA-4clients`). Has no effect unless -jsonout is also supplied.
@@ -127,12 +143,16 @@ python3 CRDP_Stress.py -endpoint $CRDP_HOST -policy MyPolicy -user alice -csvlis
 
 **Recommended settings for credit-card throughput (16-digit card, 3-node / 24-pod cluster):**
 
-Measured against the tuned 3-node cluster (48 CPU cores total; 24 CRDP pods with CPU requests and an
-even pod spread — see [crdp-app-svc-ing.yml](CRDP_K8_Deployment/crdp-app-svc-ing.yml)). Two client
-knobs drive throughput: `-batchsize` (txns per bulk REST call) and concurrency. Concurrency comes in
-two forms — `-threads` (worker threads inside one Python process, capped by the GIL) and **processes**
-(independent OS processes launched by `multi_client.py`, which sidestep the GIL). The optimal mix
-depends on which layer is the bottleneck, and that is decided by the protection policy's cipher:
+The figures below come from a reference cluster of three 16-vCPU nodes (48 vCPU total) running 24 CRDP
+pods with CPU requests and an even pod spread — see
+[crdp-app-svc-ing.yml](CRDP_K8_Deployment/crdp-app-svc-ing.yml). Treat them as a starting point and
+re-measure on your own hardware.
+
+Two client knobs drive throughput: `-batchsize` (txns per bulk REST call) and concurrency. Concurrency
+comes in two forms — `-threads` (worker threads inside one Python process, capped by the GIL) and
+**processes** (independent OS processes launched by `multi_client.py`, which sidestep the GIL). The
+optimal mix depends on which layer is the bottleneck, and that is decided by the protection policy's
+cipher:
 
 | Protection policy | Cipher | Bottleneck | `-batchsize` | `-threads` (per process) | Client processes |
 |---|---|---|---|---|---|
@@ -143,13 +163,18 @@ depends on which layer is the bottleneck, and that is decided by the protection 
   larger (20k–40k) *reduces* throughput because the last oversized message per worker creates tail
   imbalance (one node drains while the others sit idle).
 - **Threads plateau around 20.** Past ~24 the GIL serializes the per-call JSON encode/decode, so extra
-  threads add nothing (throughput was flat from 24→48 threads in testing). To go faster, add
-  **processes** (via `multi_client.py`), not threads.
-- **FPE_AES is backend-bound** (~650k txns/sec on 48 cores): ~5 client processes fully saturate the
-  cluster and more just contend. Reaching 1M/sec with FPE needs **more nodes**, not more client load.
-- **AES-256-CBC costs roughly half the CPU per txn** (~1.3M txns/sec ceiling on the same 48 cores),
-  so the *load host* becomes the limit. Use one process per physical core, keep `orjson` installed
+  threads add nothing — throughput is flat from 24 to 48 threads. To go faster, add **processes**
+  (via `multi_client.py`), not threads.
+- **FPE_AES is backend-bound** (~650k txns/sec on 48 vCPU): roughly 5 client processes fully saturate
+  the cluster and more just contend. Going faster with FPE needs **more nodes**, not more client load.
+- **AES-256-CBC costs roughly half the CPU per txn** (~1.3M txns/sec ceiling on the same 48 vCPU), so
+  the *load host* becomes the limit. Use one process per physical core, keep `orjson` installed
   (it releases the GIL for JSON), and add load hosts to reach the ceiling.
+
+> Distinguishing "backend-bound" from "client-bound" requires measuring both ends. The
+> [Monitoring/](Monitoring/README.md) stack does exactly that: if the cluster nodes are pegged and the
+> load host has headroom, you are measuring CRDP; if the load host is pegged, you are measuring your
+> load generator.
 
 Near-optimal FPE run — 6 client processes:
 ```bash

@@ -1,11 +1,12 @@
 # node_exporter on every cluster node, exposing :9100 on the node's own IP.
 #
-# hostNetwork means the external Prometheus scrapes 192.168.1.{188,187,189}:9100
-# directly -- no Service, no NodePort. The load client cm-neptune is NOT a
-# cluster node and gets node_exporter via apt instead (see ../node_exporter/).
+# hostNetwork means the external Prometheus scrapes each node's own IP on :9100
+# directly -- no Service, no NodePort. The load-generating client is NOT a cluster
+# node, so it gets node_exporter from the distro package instead; see
+# ../node_exporter/install_node_exporter.sh.
 #
 # This is the exporter that supplies node_cpu_seconds_total{mode="steal"}, the
-# metric benchmark/sample_steal.sh currently hand-parses out of /proc/stat.
+# evidence that a vCPU is not a physical core.
 #
 # requests == limits so the exporter can never burst and perturb a benchmark run.
 apiVersion: apps/v1

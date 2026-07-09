@@ -5,9 +5,9 @@
 # exposed to the external Prometheus on NodePort 30080 -- unauthenticated, but
 # it emits object *metadata* only, never Secret contents.
 #
-# This is how we get `kube_pod_container_resource_requests` to cross-check the
-# 1500m CPU request in CRDP_K8_Deployment/crdp-app-svc-ing.yml, and pod counts
-# per node to replace the hand-maintained podcounts.json in the benchmark runs.
+# It provides `kube_pod_container_resource_requests`, to cross-check the CPU
+# requests declared in the CRDP deployment manifest against the live cluster, and
+# per-node pod counts, to confirm topologySpreadConstraints are balancing pods.
 apiVersion: v1
 kind: ServiceAccount
 metadata:

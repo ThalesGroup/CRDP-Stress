@@ -11,34 +11,35 @@
 #
 # backend.jsonl is the improvement. aggregate_profile.py currently ignores it
 # (metrics-server lags 15-25s, so `kubectl top` was unusable for short runs) and
-# instead *estimates* backend cores as (busy% - idle_baseline%) x 16 vCPU. Here
+# instead *estimates* backend cores as (busy% - idle_baseline%) x NODE_VCPU. Here
 # per_node_m is measured directly from cAdvisor's counter -- only CRDP's cgroups,
 # nothing else on the node.
 #
 # Usage -- pass the PHASE window, straight from the client JSONs' wall_start_epoch
 # and wall_end_epoch. Do NOT pre-pad it; --pad handles that (see below).
 #
-#   py benchmark/prom_snapshot.py --start 1783622612 --end 1783622653 \
+#   export PROM_URL=http://<prometheus-host>:9090
+#   py benchmark/prom_snapshot.py --start <phase_start> --end <phase_end> \
 #       --rate-window 30s --out results/digits/
 #
-# Two windowing subtleties, both learned the hard way:
+# Two windowing subtleties:
 #
 #  * `--pad` (default 60s) widens only the EMITTED jsonl, not the summary. The
 #    aggregator derives each node's idle baseline as min(busy_pct) across the
-#    whole file (aggregate_profile.py:90), so the file must contain genuinely
-#    idle samples on either side of the load or that baseline collapses to the
-#    loaded value and the estimated core count goes to ~zero.
+#    whole file, so the file must contain genuinely idle samples on either side
+#    of the load, or that baseline collapses to the loaded value and the
+#    estimated core count falls to ~zero.
 #
 #  * The printed summary skips the first `--rate-window` seconds of the phase.
 #    rate() at time t looks BACKWARD, so the earliest in-phase samples average in
-#    pre-load idle and drag the mean down. Trimming a fixed fraction of rows (a
-#    20/80 trim) does not fix this -- the correct trim is exactly one rate window.
+#    pre-load idle and drag the mean down. Trimming a fixed fraction of rows does
+#    not fix this -- the correct trim is exactly one rate window.
 #
 # cAdvisor resolution: the kubelet must run with --housekeeping-interval=5s
 # (Monitoring/rke2/apply_rke2_metrics.sh). At the 10s default, cAdvisor advances
-# its counter only every ~12s, and rate(...[15s]) silently returns data for a
-# handful of pods instead of all 24. Scrape interval alone cannot fix this --
-# cAdvisor stamps its own timestamps.
+# its counter only every ~12s, so rate(...[15s]) silently returns data for a
+# handful of pods rather than all of them. Scrape interval alone cannot fix this,
+# because cAdvisor stamps its own timestamps.
 import argparse
 import json
 import os
@@ -48,9 +49,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-DEFAULT_PROM = "http://192.168.1.186:9090"
-CLUSTER_NODES = ["kube", "sphere", "cone"]
-NODE_VCPU = 16
+# Override with --prom, or by exporting PROM_URL.
+DEFAULT_PROM = os.environ.get("PROM_URL", "http://localhost:9090")
+# The `node` label values from the scrape config. Backend nodes only -- the load
+# client is not a backend. Override with --nodes.
+CLUSTER_NODES = ["control-plane", "worker-1", "worker-2"]
+NODE_VCPU = int(os.environ.get("NODE_VCPU", "16"))
 
 # container!="" drops cAdvisor's pod-level cgroup rollup, which would otherwise
 # double-count every pod alongside its own container.
@@ -59,11 +63,10 @@ Q_CORES = ('sum by (node) (rate(container_cpu_usage_seconds_total'
 Q_PODS = ('count by (node) (rate(container_cpu_usage_seconds_total'
           '{{job="cadvisor", pod=~"{pod_re}", container!=""}}[{w}]) > 0)')
 
-# job="node-exporter" is REQUIRED, not decorative: the CipherTrust Manager
-# (job="CM-Kirk") embeds its own node exporter and publishes 32 series of
-# node_cpu_seconds_total for its own host. Those carry no `node` label, so
-# without this filter they fold into the results as a phantom entry and skew
-# any cluster-wide aggregation.
+# job="node-exporter" is REQUIRED, not decorative: CipherTrust Manager embeds its
+# own node exporter and publishes node_cpu_seconds_total series for its own host.
+# Those carry no `node` label, so without this filter they fold into the results
+# as a phantom entry and skew any cluster-wide aggregation.
 Q_BUSY = ('100 - avg by (node) (rate(node_cpu_seconds_total'
           '{{job="node-exporter", mode="idle"}}[{w}])) * 100')
 Q_STEAL = ('avg by (node) (rate(node_cpu_seconds_total'
@@ -128,7 +131,7 @@ def main():
                          "jsonl so aggregate_profile.py can find an idle baseline")
     ap.add_argument("--pod-regex", default="crdp-deployment-.*")
     ap.add_argument("--nodes", default=",".join(CLUSTER_NODES),
-                    help="cluster nodes only -- cm-neptune is the load client, not a backend")
+                    help="backend `node` labels only; exclude the load client")
     ap.add_argument("--tps", type=float, default=0,
                     help="phase txns/sec; if given, prints measured efficiency")
     args = ap.parse_args()
@@ -220,12 +223,11 @@ def main():
         print("\nefficiency, cAdvisor : %7.0f txns/sec/core" % (args.tps / tot_cad))
         print("efficiency, proc-est : %7.0f txns/sec/core" % (args.tps / tot_est))
 
-    # Empirically these agree within a few percent (measured 44.3 vs 42.7 on an
-    # 8-client digits PROTECT run, against 43.5 in results/report.md). They are
-    # not identical and neither strictly bounds the other: the estimate sweeps in
-    # kubelet/containerd/canal CPU *and* counts steal as busy, which inflates it,
-    # while cAdvisor measures only CRDP's cgroups. Treat a gap under ~10% as
-    # agreement; a larger one means the core-attribution method needs review.
+    # The two methods normally agree within a few percent. Neither strictly bounds
+    # the other: the estimate sweeps in kubelet/containerd/CNI CPU *and* counts
+    # steal as busy, which inflates it, while cAdvisor measures only CRDP's
+    # cgroups. Treat a gap under ~10% as agreement; a larger one means the
+    # core-attribution method needs review.
     skew = tot_cad / tot_est if tot_est else float("nan")
     verdict = "agree" if 0.9 <= skew <= 1.1 else "DISAGREE -- investigate"
     print("\ncAdvisor / proc-estimate = %.2f  (%s)" % (skew, verdict))
