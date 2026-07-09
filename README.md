@@ -7,34 +7,45 @@ Every PROTECT/REVEAL call goes through the CRDP bulk API. The total plaintext wo
 **Project layout:**
 
 ```
-CRDP_Stress_App/      # Python stress-test app (run from here)
-  CRDP_Stress.py
-  CRDP_REST_API.py
-  parallel_execution.py
-  multi_client.py       # launches N stress processes on one host (beats the GIL)
+CRDP_Stress_App/            # Python stress-test app (run from here)
+  CRDP_Stress.py              # the CLI documented below
+  CRDP_REST_API.py            # CRDP bulk protect/reveal REST client
+  parallel_execution.py       # thread pool, metrics, latency percentiles
+  multi_client.py             # launches N stress processes on one host (beats the GIL)
   requirements.txt
-CRDP_K8_Deployment/   # Kubernetes manifests + deploy script for CRDP
-  crdp-app-svc-ing.yml
-  crdp-ingress.yml
-  makeSecretandDeploy.sh
-Monitoring/           # Prometheus + Grafana observability for the deployment
-  README.md             # start here: install guide
-  k8s/                  # node-exporter, kube-state-metrics, Prometheus RBAC
-  rke2/                 # exposes RKE2 control-plane metrics
-  prometheus/           # scrape-job template
-  grafana/              # CRDP dashboard + import instructions
-  promql/               # the queries behind each panel
-benchmark/            # multi-host benchmark harness and reporting pipeline
-  spread_launcher.py    # drives load across several node endpoints
-  aggregate_profile.py  # per-profile summary (throughput, latency, cores, steal)
-  prom_snapshot.py      # rebuilds backend metrics from Prometheus
-  sizing.py             # cores required to hit a target throughput
-Test_Data/            # Sample inputs for -payload / -csvlist
+CRDP_K8_Deployment/         # Kubernetes manifests + deploy/teardown scripts for CRDP
+  crdp-app-svc-ing.yml        # Deployment + NodePort Service
+  crdp-ingress.yml            # Ingress for host-based routing
+  makeSecretandDeploy.sh      # creates the registration secret and deploys CRDP
+  deleteAndVerifyCRDP-K8.sh   # tears the CRDP resources down and verifies cleanup
+Monitoring/                 # Prometheus + Grafana observability for the deployment
+  README.md                   # start here: install guide
+  k8s/                        # node-exporter, kube-state-metrics, Prometheus RBAC
+  rke2/                       # exposes RKE2 control-plane metrics
+  node_exporter/              # node_exporter for hosts outside the cluster
+  prometheus/                 # scrape-job template + key-manager metrics guide
+  grafana/                    # CRDP dashboard + import instructions
+  promql/                     # the queries behind each panel
+benchmark/                  # multi-host benchmark harness and reporting pipeline
+  spread_launcher.py          # drives load across several node endpoints
+  sample_backend.sh           # samples CRDP pod CPU on the control-plane node
+  sample_steal.sh             # samples node busy% and CPU steal% from /proc/stat
+  prom_snapshot.py            # same data, rebuilt from Prometheus (preferred)
+  aggregate_profile.py        # per-profile summary (throughput, latency, cores, steal)
+  sizing.py                   # cores required to hit a target throughput
+  make_charts.py              # renders the report charts
+  gen_report.py               # assembles the Markdown technical report
+  build_report.sh             # converts that report to DOCX via pandoc
+Test_Data/                  # Sample inputs for -payload / -csvlist
   RAM_Image.jpg
+  Check_Image.png
   plaintext.txt
   plaintext.zip
   testpatterns.csv
 ```
+
+Running the app writes `*_protected.*` copies next to the inputs it processes; those are build artifacts
+and are not tracked.
 
 Measuring throughput is only half the job — to know *why* a number is what it is, and what to add to
 improve it, you need per-pod CPU, node saturation and CPU steal. See [Monitoring/](Monitoring/README.md).
