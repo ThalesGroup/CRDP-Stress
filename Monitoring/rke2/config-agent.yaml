@@ -1,0 +1,15 @@
+# Reference snippet: the keys apply_rke2_metrics.sh merges into
+# /etc/rancher/rke2/config.yaml on the AGENT nodes (sphere, cone).
+#
+# Agents run no etcd/scheduler/controller-manager, so kube-proxy is the only
+# loopback-bound metrics listener to relocate. The kubelet already listens on
+# all interfaces (:10250) and needs no change -- only a bearer token to scrape.
+#
+# The agents' real config.yaml also holds `server:` and `token:` (the cluster
+# join secret). apply_rke2_metrics.sh appends to it rather than replacing it.
+
+kube-proxy-arg:
+  - "metrics-bind-address=0.0.0.0:10249"
+kubelet-arg:
+  - "housekeeping-interval=5s"   # cAdvisor sample cadence; default 10s is too
+                                 # coarse for short benchmark phases

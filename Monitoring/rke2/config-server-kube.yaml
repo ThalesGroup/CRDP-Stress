@@ -1,0 +1,20 @@
+# Reference snippet: the keys apply_rke2_metrics.sh merges into
+# /etc/rancher/rke2/config.yaml on the SERVER node (kube).
+#
+# RKE2 binds etcd, kube-scheduler, kube-controller-manager and kube-proxy
+# metrics to 127.0.0.1 by default, so an off-cluster Prometheus cannot reach
+# them. These keys move those listeners onto every interface.
+#
+# Do NOT copy this file over an existing config.yaml -- on sphere/cone the
+# config also carries the cluster join token. Use apply_rke2_metrics.sh.
+
+etcd-expose-metrics: true
+kube-controller-manager-arg:
+  - "bind-address=0.0.0.0"
+kube-scheduler-arg:
+  - "bind-address=0.0.0.0"
+kube-proxy-arg:
+  - "metrics-bind-address=0.0.0.0:10249"
+kubelet-arg:
+  - "housekeeping-interval=5s"   # cAdvisor sample cadence; default 10s is too
+                                 # coarse for short benchmark phases

@@ -1,0 +1,55 @@
+# Identity for the OFF-CLUSTER Prometheus (192.168.1.186) to scrape kubelet,
+# cAdvisor, the apiserver, the scheduler and the controller-manager.
+#
+# Those endpoints all require authn/authz; only node_exporter, etcd, kube-proxy
+# and kube-state-metrics are unauthenticated.
+#
+# We mint a long-lived Secret-backed token rather than `kubectl create token`,
+# whose lifetime the apiserver caps. Kubernetes' LegacyServiceAccountTokenCleaner
+# only reaps tokens that go UNUSED for a year -- one scraped every 5s never is.
+#
+# Extract the token with:
+#   kubectl -n monitoring get secret prometheus-token \
+#     -o jsonpath='{.data.token}' | base64 -d
+# It is a credential: never commit it (.gitignore covers *.token / k8s-token).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-scraper
+rules:
+  # nodes/metrics is the kubelet's /metrics; nodes/proxy covers /metrics/cadvisor.
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/metrics", "nodes/proxy", "nodes/stats", "services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+  # The apiserver's, scheduler's and controller-manager's own /metrics are
+  # non-resource URLs and need an explicit grant.
+  - nonResourceURLs: ["/metrics", "/metrics/cadvisor"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-scraper
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-scraper
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: monitoring
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: prometheus-token
+  namespace: monitoring
+  annotations:
+    kubernetes.io/service-account.name: prometheus
+type: kubernetes.io/service-account-token

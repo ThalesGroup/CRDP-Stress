@@ -10,3 +10,10 @@ __pycache__/
 # Benchmark run artifacts (raw JSONs, samples, charts, generated report)
 /results/
 *.docx
+
+# Monitoring credentials. Monitoring/prometheus/scrape_configs.yml is a template
+# with a __K8S_TOKEN__ placeholder; the rendered file carries a real Kubernetes
+# ServiceAccount token and must never be committed.
+*.token
+k8s-token
+scrape_configs.rendered.yml

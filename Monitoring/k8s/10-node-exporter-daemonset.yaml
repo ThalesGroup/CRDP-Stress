@@ -1,0 +1,77 @@
+# node_exporter on every cluster node, exposing :9100 on the node's own IP.
+#
+# hostNetwork means the external Prometheus scrapes 192.168.1.{188,187,189}:9100
+# directly -- no Service, no NodePort. The load client cm-neptune is NOT a
+# cluster node and gets node_exporter via apt instead (see ../node_exporter/).
+#
+# This is the exporter that supplies node_cpu_seconds_total{mode="steal"}, the
+# metric benchmark/sample_steal.sh currently hand-parses out of /proc/stat.
+#
+# requests == limits so the exporter can never burst and perturb a benchmark run.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: monitoring
+  labels:
+    app: node-exporter
+spec:
+  selector:
+    matchLabels:
+      app: node-exporter
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+    spec:
+      hostNetwork: true
+      hostPID: true
+      dnsPolicy: ClusterFirstWithHostNet
+      # Tolerate every taint so the DaemonSet also lands on the control-plane node.
+      tolerations:
+        - operator: Exists
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+      containers:
+        - name: node-exporter
+          image: quay.io/prometheus/node-exporter:v1.8.2
+          args:
+            - --path.procfs=/host/proc
+            - --path.sysfs=/host/sys
+            - --path.rootfs=/host/root
+            - --web.listen-address=:9100
+            # Ignore virtual/container filesystems to keep cardinality sane.
+            - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/.+|run/k3s/.+)($|/)
+          ports:
+            - containerPort: 9100
+              hostPort: 9100
+              name: metrics
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 20m
+              memory: 64Mi
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: root
+              mountPath: /host/root
+              mountPropagation: HostToContainer
+              readOnly: true
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: root
+          hostPath:
+            path: /
