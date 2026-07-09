@@ -39,6 +39,8 @@ def main():
             "profile": pr["profile"], "policy": pr["policy"],
             "protect_eff_tps_per_core": ep,
             "reveal_eff_tps_per_core": er,
+            "protect_client_limited": (pr.get("protect") or {}).get("backend", {}).get("client_limited", False),
+            "protect_peak_busy_pct": (pr.get("protect") or {}).get("backend", {}).get("peak_node_busy_pct"),
             "protect_cores_for_target": math.ceil(args.target / ep) if ep else None,
             "reveal_cores_for_target": math.ceil(args.target / er) if er else None,
             # measured client-side driving efficiency (txns/sec per load-host logical core)

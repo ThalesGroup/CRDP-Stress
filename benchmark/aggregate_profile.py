@@ -80,28 +80,38 @@ def phase_summary(results, phase, backend, steals, podcounts, trim, clean_nodes)
     max_len = max((len(r) for r in rolls), default=0)
     rolling = [round(sum(r[i] for r in rolls if i < len(r))) for i in range(max_len)]
 
-    # ---- Backend cores-used over the steady window ----
-    bsamp = [s for s in backend if sw0 <= s.get("epoch", 0) <= sw1] or backend
-    total_cores = mean([s["pod"]["total_m"] for s in bsamp if "pod" in s]) / 1000.0
-    per_node_cores = {}
-    node_keys = set()
-    for s in bsamp:
-        for k in s.get("pod", {}).get("per_node_m", {}):
-            node_keys.add(k)
-    for k in node_keys:
-        per_node_cores[k] = mean([s["pod"]["per_node_m"].get(k, 0) for s in bsamp]) / 1000.0
-
-    # ---- Steal% per node over the steady window ----
-    steal_pct, busy_pct = {}, {}
+    # ---- Backend cores-used from /proc/stat busy% (lag-free) ----
+    # kubectl top / metrics-server lags ~15-25s and is unusable for per-phase
+    # attribution on short runs. /proc/stat busy% is instantaneous. We isolate the
+    # LOAD-induced work by subtracting each node's idle baseline (its minimum busy%
+    # over the capture, which includes idle head/tail). node cores = load_busy% x
+    # NODE_VCPU. Steal is low here, so vCPU ~= physical core.
+    NODE_VCPU = 16
+    baseline = {n: min((x["busy_pct"] for x in samp), default=0.0) for n, samp in steals.items()}
+    per_node_cores, steal_pct, busy_pct = {}, {}, {}
+    n_samples = 0
     for node, samp in steals.items():
         w = [x for x in samp if sw0 <= x.get("epoch", 0) <= sw1] or samp
+        n_samples = max(n_samples, len(w))
+        avg_busy = mean([x["busy_pct"] for x in w])
+        load_busy = max(avg_busy - baseline[node], 0.0)
+        per_node_cores[node] = round(load_busy / 100.0 * NODE_VCPU, 2)
         steal_pct[node] = round(mean([x["steal_pct"] for x in w]), 1)
-        busy_pct[node] = round(mean([x["busy_pct"] for x in w]), 1)
+        busy_pct[node] = round(avg_busy, 1)
+    total_cores = round(sum(per_node_cores.values()), 1)
+    bsamp = list(range(n_samples))  # count only (kubectl-top backend.jsonl unused: lag)
 
     # ---- Efficiency ----
     total_pods = sum(podcounts.values()) if podcounts else None
     clean_pods = sum(podcounts.get(n, 0) for n in clean_nodes) if podcounts else None
     clean_cores = sum(per_node_cores.get(n, 0) for n in clean_nodes)
+
+    # Saturation: if the busiest node stayed well under full, the single load host
+    # could not saturate the backend, so the efficiency is a client-limited lower
+    # bound (backend has headroom) rather than a true per-core ceiling.
+    peak_busy = max(busy_pct.values()) if busy_pct else 0
+    saturated = peak_busy >= 60.0
+    client_limited = not saturated
 
     raw_eff = (overlapped_rate / total_cores) if total_cores > 0 else None
     clean_eff = None
@@ -131,12 +141,16 @@ def phase_summary(results, phase, backend, steals, podcounts, trim, clean_nodes)
             "per_node_cores_used": {k: round(v, 1) for k, v in per_node_cores.items()},
             "node_steal_pct": steal_pct,
             "node_busy_pct": busy_pct,
+            "peak_node_busy_pct": round(peak_busy, 1),
+            "saturated": saturated,
+            "client_limited": client_limited,
             "pod_counts": podcounts or {},
         },
         "efficiency_tps_per_core": {
             "raw": round(raw_eff) if raw_eff else None,
             "clean_node_corrected": round(clean_eff) if clean_eff else None,
             "clean_nodes": list(clean_nodes),
+            "client_limited": client_limited,
         },
     }
 

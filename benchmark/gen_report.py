@@ -83,6 +83,11 @@ def main():
                  f"**{rec['worker_nodes']} × {rec['cores_per_node']}-core worker nodes**, each on its own "
                  f"non-oversubscribed hypervisor, plus dedicated hosts for the key manager, control plane, "
                  f"and load generators. The cheaper profiles then clear the target on the same footprint.\n")
+        L.append(f"\n> This node count is driven almost entirely by the **{gating}** profile's cost per "
+                 f"transaction, which in turn reflects its **64-character field** (vs 19 for digits). If the "
+                 f"real {gating} workload uses a shorter token, the requirement drops close to the digits "
+                 f"profile (~{next((kf(p['protect_cores_for_target']) for p in sizing['per_profile'] if p['profile']=='digits'), '?')} cores). "
+                 f"Size to your actual field length.\n")
     L.append("> **Key caveat:** the cluster nodes are virtual machines over-committed across shared "
              "hypervisors, so a vCPU is not a physical core (CPU *steal*). All efficiency and sizing "
              "figures below are stated on a **dedicated physical-core** basis.\n")
@@ -129,11 +134,16 @@ def main():
             if not s:
                 continue
             c = s["client"]; b = s["backend"]; lat = c["latency_ms"]
+            eff = (s['efficiency_tps_per_core'] or {}).get('clean_node_corrected')
+            eff_s = kf(eff) + (" *" if b.get("client_limited") else "")
             rows.append([phase.upper(), kf(c["overlapped_window_tps"]), kf(c["sum_of_rates_tps"]),
                          c["mb_per_sec"], f"{lat['p50']}/{lat['p95']}/{lat['p99']}",
-                         b["total_cores_used"], kf((s['efficiency_tps_per_core'] or {}).get('clean_node_corrected'))])
+                         b["total_cores_used"], f"{b.get('peak_node_busy_pct')}%", eff_s])
         L.append(md_table(["Phase", "txns/sec (window)", "txns/sec (sum)", "MB/s",
-                           "lat p50/p95/p99 ms", "backend cores", "eff (clean) tps/core"], rows) + "\n")
+                           "lat p50/p95/p99 ms", "backend cores", "backend busy%", "eff (clean) tps/core"], rows) + "\n")
+    L.append("\n\\* *client-limited: the single load host could not saturate the backend for this phase "
+             "(backend well under full), so the efficiency is a lower bound and the backend has ample "
+             "headroom — not a per-core ceiling.*\n")
     L.append(img(cd, "rolling.png", "Rolling throughput"))
 
     # ---------------- Analysis ----------------
@@ -141,9 +151,23 @@ def main():
     L.append("### Per-core efficiency\n")
     erows = []
     for pr in profiles:
+        b = (pr.get("protect") or {}).get("backend", {})
         e = (pr.get("protect") or {}).get("efficiency_tps_per_core", {})
-        erows.append([pr["profile"], kf(e.get("raw")), kf(e.get("clean_node_corrected"))])
-    L.append(md_table(["Profile", "raw tps/core (whole cluster)", "clean-node-corrected tps/core"], erows) + "\n")
+        mark = " *(client-limited)*" if b.get("client_limited") else ""
+        erows.append([pr["profile"], kf(e.get("raw")), kf(e.get("clean_node_corrected")) + mark,
+                      f"{b.get('peak_node_busy_pct')}%"])
+    L.append(md_table(["Profile", "raw tps/core", "clean-corrected tps/core", "backend busy%"], erows) + "\n")
+    L.append("The three profiles differ enormously in cost per transaction:\n"
+             "- **`alphanumeric` (FPE_AES over a 64-char, radix-62 field) is by far the most expensive** — "
+             "~5.4k txns/core, roughly **2.5× costlier than `digits`** (FPE_AES over a 19-char PAN, ~13.4k "
+             "txns/core). Most of that gap is the larger field and alphabet, not the engine; a *shorter* "
+             "alphanumeric token would land much closer to digits.\n"
+             "- **`binary` (AES-256-CBC) PROTECT is so cheap** (hardware-accelerated encrypt) that a single "
+             "16-core load host cannot saturate the backend — it sat at only ~16% busy while serving ~780k "
+             "txns/sec. Its efficiency is therefore a floor; the backend has large headroom for protect.\n"
+             "- **REVEAL is costlier than PROTECT for every profile** — the reveal path adds a per-item "
+             "access-policy / username check. For AES-CBC this is the dominant cost (reveal drove the backend "
+             "to ~75% busy vs ~16% for protect).\n")
     L.append(img(cd, "efficiency.png", "Per-core efficiency"))
     L.append("### Oversubscription evidence (CPU steal)\n")
     srows = []
@@ -157,9 +181,13 @@ def main():
     L.append("## Recommendation — reaching ≥1,000,000 txns/sec per profile\n")
     rows = []
     for p in sizing.get("per_profile", []):
-        rows.append([p["profile"], kf(p.get("protect_eff_tps_per_core")),
-                     kf(p.get("protect_cores_for_target")), kf(p.get("reveal_cores_for_target"))])
+        cl = " *" if p.get("protect_client_limited") else ""
+        rows.append([p["profile"], kf(p.get("protect_eff_tps_per_core")) + cl,
+                     kf(p.get("protect_cores_for_target")) + cl, kf(p.get("reveal_cores_for_target"))])
     L.append(md_table(["Profile", "PROTECT eff tps/core", "cores for 1M (PROTECT)", "cores for 1M (REVEAL)"], rows) + "\n")
+    L.append("\\* *binary PROTECT is client-limited (backend not saturated), so its efficiency is a lower "
+             "bound and its core requirement an upper bound — it comfortably clears the target on the "
+             "gating-sized cluster.*\n")
     L.append(img(cd, "sizing.png", "Cores required by profile"))
     if rec:
         L.append("### Recommended cluster (sized to the gating profile)\n")

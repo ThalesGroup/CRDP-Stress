@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 # build_report.sh — convert the Markdown report to DOCX with pandoc (reporting host).
-# PNG charts embed automatically via the Markdown image links given --resource-path.
+# Runs pandoc from INSIDE the results dir so the relative charts/*.png image links
+# resolve directly (portable across OSes / pandoc path-separator quirks).
 #
-# Usage: bash build_report.sh <results_dir>   (default: ./results)
+# Usage: bash build_report.sh <results_dir>   (default: results)
 set -euo pipefail
 RESULTS="${1:-results}"
-MD="$RESULTS/report.md"
-OUT="$RESULTS/CRDP_Throughput_Report.docx"
-REF="$(dirname "$0")/reference.docx"
+REF="$(cd "$(dirname "$0")" && pwd)/reference.docx"
+OUT="CRDP_Throughput_Report.docx"
 
-[ -f "$MD" ] || { echo "ERROR: $MD not found (run gen_report.py first)" >&2; exit 1; }
+[ -f "$RESULTS/report.md" ] || { echo "ERROR: $RESULTS/report.md not found (run gen_report.py first)" >&2; exit 1; }
 
-ARGS=(--from=gfm --to=docx --toc --toc-depth=2 --resource-path="$RESULTS:$RESULTS/charts")
+cd "$RESULTS"
+ARGS=(--from=gfm --to=docx --toc --toc-depth=2)
 [ -f "$REF" ] && ARGS+=(--reference-doc="$REF")
 
-pandoc "$MD" "${ARGS[@]}" -o "$OUT"
-echo "wrote $OUT"
+pandoc report.md "${ARGS[@]}" -o "$OUT"
+echo "wrote $RESULTS/$OUT"
