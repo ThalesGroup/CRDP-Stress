@@ -5,27 +5,21 @@
       "WebFetch(domain:thalesdocs.com)",
       "WebFetch(domain:docs-cybersec.thalesgroup.com)",
       "WebFetch(domain:github.com)",
-      "Bash(py -m py_compile *)",
-      "Bash(python -m py_compile *)",
-      "Bash(py -c *)",
-      "Bash(python -c *)",
-      "Bash(py CRDP_Stress.py *)",
-      "Bash(bash -n CRDP_K8_Deployment/*)",
-      "Bash(chmod +x CRDP_K8_Deployment/*)",
-      "PowerShell(py -m py_compile *)",
-      "PowerShell(py CRDP_Stress.py *)",
-      "PowerShell(py multi_client.py *)",
-      "Bash(git add *)",
-      "Bash(git commit *)",
-      "Bash(git checkout *)",
-      "Bash(git fetch *)",
-      "Bash(git merge *)",
-      "Bash(git branch *)",
-      "Bash(git rev-list *)",
-      "Bash(git update-index *)",
-      "Bash(git mv *)",
-      "Bash(git push *)",
+
+      "Bash(py *)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "PowerShell(py *)",
+
+      "Bash(bash -n *)",
+      "Bash(bash benchmark/*)",
+      "Bash(chmod +x *)",
+      "Bash(pandoc *)",
+      "Bash(unzip -l *)",
+
+      "Bash(git *)",
       "Bash(gh auth *)",
+
       "Skill(artifact-design)"
     ]
   }
