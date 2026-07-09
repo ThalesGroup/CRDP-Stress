@@ -1,75 +1,101 @@
 # Grafana on the Prometheus host
 
-Grafana is **already running** on `192.168.1.186` — container `grafana`, image
-`grafana/grafana-enterprise`, published on `0.0.0.0:3000`, state persisted in the named volume
-`grafana-storage`. Nothing needs installing; only a datasource and dashboards.
-
-Because it was started with `docker run` (no provisioning directory is bind-mounted), the datasource
-must be added through the UI or HTTP API rather than a provisioning YAML.
-
-## 1. Add the Prometheus datasource
-
-Browse to `http://192.168.1.186:3000` → *Connections → Data sources → Add → Prometheus*.
+Grafana **already runs** on `192.168.1.186` — container `grafana`, image `grafana/grafana-enterprise`
+v11.1.0, published on `0.0.0.0:3000`, state persisted in the named volume `grafana-storage`. It also
+**already had a Prometheus datasource** configured and set as default:
 
 | Field | Value |
 | --- | --- |
 | Name | `Prometheus` |
-| URL | `http://192.168.1.186:9090` |
-| Scrape interval | `5s` |
+| UID | `fds29p01wk2yob` |
+| URL | `http://prometheus.test256.io:9090` |
+| Default | yes |
 
-Use the **host IP, not `localhost`** — Grafana is in its own bridge-network container, so `localhost`
-resolves to the Grafana container, not the Prometheus one.
+So nothing needed installing or wiring. Everything the exporters publish became queryable in
+**Grafana → Explore** the moment the scrape jobs went live. What was missing was somewhere to *render*
+it: of the 8 pre-existing dashboards, every one covered CipherTrust Manager or Prometheus itself, and
+none touched Kubernetes or CRDP.
 
-Equivalent API call (substitute the real admin password):
+## Dashboards (all imported and verified)
 
-```bash
-curl -sS -u admin:'<password>' -H 'Content-Type: application/json' \
-  -X POST http://192.168.1.186:3000/api/datasources \
-  -d '{"name":"Prometheus","type":"prometheus","url":"http://192.168.1.186:9090",
-       "access":"proxy","isDefault":true,"jsonData":{"timeInterval":"5s"}}'
-```
-
-## 2. Import dashboards
-
-*Dashboards → New → Import → paste ID → Load → pick the Prometheus datasource.*
-
-| ID | Dashboard | Covers |
+| Dashboard | URL | Source |
 | --- | --- | --- |
-| **1860** | Node Exporter Full | CPU (incl. **steal**), memory, disk, network for all four hosts |
-| **315** | Kubernetes cluster monitoring | cluster-wide CPU/memory from cAdvisor |
-| **13332** | kube-state-metrics v2 | pod phase, restarts, replica drift |
-| **3662** | Prometheus 2.0 overview | scrape health, TSDB size |
+| **CRDP / Kubernetes — Benchmark & Health** | `/d/crdp-k8s-bench` | `crdp-kubernetes-dashboard.json` (this repo) |
+| Node Exporter Full | `/d/rYdddlPWk` | grafana.com ID **1860** |
+| kube-state-metrics-v2 | `/d/garysdevil-kube-state-metrics-v2` | grafana.com ID **13332** |
 
-Import by ID needs outbound internet from `192.168.1.186` to `grafana.com`. If that host is isolated,
-download the JSON on a machine that has access and use *Import → Upload JSON file*.
+Import-by-ID works from this host (`grafana.com` is reachable). To import the local one by hand:
+*Dashboards → New → Import → Upload JSON file*, then pick the `Prometheus` datasource.
 
-On dashboard 1860, the host selector is driven by the `instance` label (`192.168.1.188:9100`, …). The
-scrape config also attaches a friendly `node` label (`kube`, `sphere`, `cone`, `cm-neptune`) — prefer
-`node` when you write your own panels.
+Notes from the import, so nobody re-treads them:
 
-## 3. A CRDP benchmark dashboard
+- The JSON ships with `__inputs` (standard Grafana export format), but Grafana's
+  `POST /api/dashboards/import` did **not** substitute `${DS_PROMETHEUS}` when the payload also
+  stripped `__inputs`. Substituting the datasource UID literally and posting to
+  `POST /api/dashboards/db` is deterministic and works.
+- **Node Exporter Full's** `job` selector offers both `node-exporter` (kube, sphere, cone, cm-neptune)
+  **and `CM-Kirk`** — the CipherTrust Manager exports its own host metrics, so you get its CPU, memory
+  and disk for free. Pick the job first, then the host.
+- **kube-state-metrics-v2's** HPA panels read empty. That is correct, not broken: this deployment runs
+  **no Horizontal Pod Autoscaler**. Its `cluster` template variable is also empty, because
+  `kube_node_info` carries no `cluster` label in a single-cluster install; the panels still resolve
+  because `cluster=~""` matches series lacking the label.
 
-None of the stock dashboards know about CRDP, and CRDP exposes no `/metrics` of its own (its container
-declares only port 8090; `/metrics`, `/v1/metrics` and `/actuator/prometheus` all return the app's 404).
-Everything below therefore comes from cAdvisor and node_exporter. Build one dashboard with four panels —
-these are exactly the quantities the throughput report is built from:
+## The CRDP dashboard
+
+Four rows, 19 panels, every query verified against live Prometheus. It shows exactly the quantities
+`results/report.md` is built from.
+
+**CRDP workload (cAdvisor)** — cores in use (the sizing input; thresholds turn red past 43, the figure
+the report measured for digits PROTECT), pods Running, container restarts (a restart mid-run invalidates
+a benchmark), cores by node, CPU per pod across all 24 pods, memory working set.
+
+**Saturation & CPU steal (node_exporter)** — node busy %, CPU steal %, a gauge for the load client
+cm-neptune, and its available memory. Read the last two together, because this is the question the whole
+benchmark turns on:
+
+> If node busy is pegged and cm-neptune has headroom, **the backend is the wall** — you are measuring
+> CRDP. If cm-neptune is pegged, you are measuring the load generator.
+
+Steal matters because a vCPU is not a physical core: cm-neptune shares hypervisor *Lemonade* with node
+`cone`, so generating load steals cycles from `cone`'s own CRDP pods. A measured run showed `cone` at
+**7.26 % steal** during REVEAL while `kube` and `sphere` sat near zero.
+
+**RKE2 control plane** — etcd WAL fsync p99, apiserver request rate by verb, scheduler backlog and
+controller-manager queue depth. These are here to **prove a negative**: the CRDP data path never touches
+the apiserver and the pod set is static, so these should stay flat under load. If they don't, the
+control plane is interfering and the throughput numbers are suspect.
+
+**Scrape health** — targets up by job. Should sit flat at **20**: node-exporter 4, cadvisor 3, kubelet 3,
+kube-proxy 3, and one each for etcd, kube-scheduler, kube-controller-manager, kube-apiserver,
+kube-state-metrics, CM-Kirk, and prometheus.
+
+### Why `rate(...[1m])` and not `$__rate_interval`
+
+cAdvisor stamps its own timestamps and Prometheus honors them, so the effective resolution is the
+kubelet's cAdvisor **housekeeping interval**, not the scrape interval. Grafana's `$__rate_interval` can
+shrink below that on a zoomed-in time range and silently return **no data**. The panels therefore
+hardcode `[1m]`. See `../promql/benchmark_queries.md`.
+
+## Queries you can paste into Explore right now
 
 ```promql
-# Panel 1 — CRDP cores consumed, per node. Compare against 16 vCPU/node.
+# CRDP cores in use, per node
 sum by (node) (rate(container_cpu_usage_seconds_total{job="cadvisor", pod=~"crdp-deployment-.*", container!=""}[1m]))
 
-# Panel 2 — CPU steal %. The evidence that a vCPU is not a physical core.
-avg by (node) (rate(node_cpu_seconds_total{job="node-exporter", mode="steal"}[1m])) * 100
-
-# Panel 3 — node busy %. Is the backend saturated, or is the run client-limited?
+# Is the backend saturated?
 100 - avg by (node) (rate(node_cpu_seconds_total{job="node-exporter", mode="idle"}[1m])) * 100
 
-# Panel 4 — load client headroom. Proves cm-neptune is not the bottleneck.
-100 - avg(rate(node_cpu_seconds_total{job="node-exporter", node="cm-neptune", mode="idle"}[1m])) * 100
+# A vCPU is not a physical core
+avg by (node) (rate(node_cpu_seconds_total{job="node-exporter", mode="steal"}[1m])) * 100
 ```
 
-Panels 3 and 4 side by side answer the question the whole benchmark hinges on: if panel 3 is pegged and
-panel 4 has headroom, the backend is the wall. If panel 4 is pegged, you are measuring the load
-generator, not CRDP.
+Always filter `job="node-exporter"` on `node_*` metrics — see the warning in
+`../promql/benchmark_queries.md`; CipherTrust Manager publishes colliding series.
 
-See `../promql/benchmark_queries.md` for the full query reference.
+## Credentials
+
+The Grafana admin password is **not** stored in this repo and must never be committed. Prefer a scoped
+service-account token (*Administration → Service accounts*, role `Editor`) over the admin password for
+any automated import; a token is revocable and least-privilege. Note that passing credentials to `curl -u`
+on the host exposes them briefly in that process's argv (`ps`); prefer `--netrc` or a token in a file.
