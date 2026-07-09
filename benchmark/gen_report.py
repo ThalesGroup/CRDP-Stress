@@ -126,6 +126,22 @@ def main():
 
     # ---------------- Results ----------------
     L.append("## Current-Deployment Results\n")
+    L.append("**How to read the throughput columns.** Each run drives the cluster with several concurrent "
+             "client processes; the tables report their combined result two ways, plus a data-volume column:\n"
+             "- **txns/sec (window)** — the *sustained aggregate*, and the figure used for every efficiency "
+             "and sizing calculation in this report. It is the total transactions completed by all clients "
+             "divided by the **union wall-clock window** (earliest client start → latest client finish): "
+             "`Σ total_txns ÷ (max end − min start)`. Because it spans the whole window, it honestly includes "
+             "the brief ramp-up and drain at the edges.\n"
+             "- **txns/sec (sum)** — an *optimistic upper bound*: the sum of each client's own rate "
+             "(`client total_txns ÷ that client's own active window`), i.e. the rate the cluster would show "
+             "if every client ran perfectly in phase: `Σ (total_txns_i ÷ window_i)`. The **gap between *sum* "
+             "and *window* measures client stagger** — a few percent means the clients overlapped cleanly; a "
+             "large gap (e.g. binary) means a single load host could not keep them in phase and the run is "
+             "client-limited.\n"
+             "- **MB/s** — data-plane throughput: `txns/sec (window) × plaintext field bytes ÷ 1,000,000` "
+             "(the protected field is 19 bytes for the digits and binary inputs, 64 bytes for alphanumeric). "
+             "It is the *volume of data* protected/revealed, distinct from the *transaction rate*.\n")
     for pr in profiles:
         L.append(f"### {pr['profile']} — `{pr['policy']}`\n")
         rows = []

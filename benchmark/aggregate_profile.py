@@ -52,7 +52,7 @@ def mean(xs):
     return sum(xs) / len(xs) if xs else 0.0
 
 
-def phase_summary(results, phase, backend, steals, podcounts, trim, clean_nodes):
+def phase_summary(results, phase, backend, steals, podcounts, trim, clean_nodes, payload_bytes=0):
     ph = [r[phase] for r in results if phase in r and r[phase].get("total_txns")]
     if not ph:
         return None
@@ -131,7 +131,10 @@ def phase_summary(results, phase, backend, steals, podcounts, trim, clean_nodes)
             "latency_ms": {k: round(v, 1) for k, v in lat.items()},
             "host_cpu_peak_pct": host_cpu_peak,
             "host_cores": host_cores,
-            "mb_per_sec": round(mean([p.get("mb_per_sec", 0) for p in ph]), 3),
+            # Aggregate data-plane rate: window txns/sec x plaintext field bytes.
+            # (Consistent with the aggregate throughput columns, unlike the tool's
+            # per-client mb_per_sec.)
+            "mb_per_sec": round(overlapped_rate * payload_bytes / 1_000_000, 2),
             "rolling_tps": rolling,
         },
         "backend": {
@@ -188,8 +191,8 @@ def main():
         "payload_bytes": args.payload_bytes,
         "run_dir": os.path.abspath(args.run_dir),
         "note": args.note,
-        "protect": phase_summary(results, "protect", backend, steals, podcounts, args.trim, clean_nodes),
-        "reveal": phase_summary(results, "reveal", backend, steals, podcounts, args.trim, clean_nodes),
+        "protect": phase_summary(results, "protect", backend, steals, podcounts, args.trim, clean_nodes, args.payload_bytes),
+        "reveal": phase_summary(results, "reveal", backend, steals, podcounts, args.trim, clean_nodes, args.payload_bytes),
     }
     with open(args.out, "w") as f:
         json.dump(out, f, indent=2)
