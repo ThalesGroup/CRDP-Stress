@@ -127,11 +127,19 @@ benchmark/prom_snapshot.py   rebuilds the benchmark aggregator's JSONL from Prom
 - Network reachability from the Prometheus host to every node on ports
   `9100`, `10249`, `10250`, `2381`, `10257`, `10259`, `6443`, and `30080`.
 
-On RKE2, `kubectl` is not on `PATH` by default:
+On RKE2, `kubectl` is not on `PATH`, and its kubeconfig (`/etc/rancher/rke2/rke2.yaml`) exists only on
+the server node and is readable only by root. Copy it once, on the server node, to a file your own user
+can read:
 
 ```bash
-KUBECTL="/var/lib/rancher/rke2/bin/kubectl --kubeconfig=/etc/rancher/rke2/rke2.yaml"
+mkdir -p ~/.kube
+sudo cp /etc/rancher/rke2/rke2.yaml ~/.kube/config
+sudo chown "$USER" ~/.kube/config && chmod 600 ~/.kube/config
+KUBECTL="/var/lib/rancher/rke2/bin/kubectl --kubeconfig=$HOME/.kube/config"
 ```
+
+To run `kubectl` from another machine instead, copy that file there and change its `server:` line from
+`https://127.0.0.1:6443` to `https://CONTROL_PLANE_IP:6443`.
 
 ### Step 0 — Install Prometheus and Grafana (skip if you already have them)
 
@@ -172,9 +180,11 @@ Two flags worth understanding:
   `curl -X POST http://localhost:9090/-/reload` instead of restarting the container. Without it that
   endpoint returns `405` and you must `docker restart prometheus`. Restarting loses no data — the TSDB
   lives in the `prometheus-data` volume.
-- **Bind-mount the directory, not the file**, if you want to use `credentials_file` for the bearer
-  token instead of inlining it. Mounting only `prometheus.yml` (as above) makes any sibling token file
-  invisible inside the container, which is why `scrape_configs.yml` inlines the token by default.
+- **The config is mounted as a single file.** That is why the scrape template inlines the bearer token;
+  see the note at the end of Step 4 if you would rather keep the token in a separate file.
+
+Both images are untagged above, so two installs made on different days can get different versions.
+Once you have a working setup, pin the tags you tested (for example `prom/prometheus:<version>`).
 
 Check it: `curl http://PROM_HOST:9090/-/healthy` and open `http://PROM_HOST:3000` (default login
 `admin` / `admin`; change it immediately).
@@ -195,7 +205,10 @@ ssh SSH_USER@WORKER_1_IP      'sudo bash -s agent'  < Monitoring/rke2/apply_rke2
 ssh SSH_USER@WORKER_2_IP      'sudo bash -s agent'  < Monitoring/rke2/apply_rke2_metrics.sh
 ```
 
-This also sets `housekeeping-interval=5s` on every kubelet. To undo everything:
+This also sets `housekeeping-interval=5s` on every kubelet. To undo everything, run rollback on each
+node. It removes only the settings the script added, keeps the rest of `config.yaml` (including an
+agent's join token), and restarts whichever RKE2 service is running on that node. It works however many
+times Step 1 was run:
 
 ```bash
 ssh SSH_USER@NODE_IP 'sudo bash -s rollback' < Monitoring/rke2/apply_rke2_metrics.sh
@@ -209,7 +222,7 @@ ssh SSH_USER@CONTROL_PLANE_IP "sudo ss -lntp | grep -E ':(2381|10249|10257|10259
 
 ### Step 2 — Deploy the in-cluster exporters
 
-No `sudo` required; this is plain `kubectl`.
+No `sudo` required once you have the user-readable kubeconfig from the prerequisites.
 
 ```bash
 $KUBECTL apply -f Monitoring/k8s/
@@ -221,13 +234,17 @@ This creates the `monitoring` namespace, a `node-exporter` DaemonSet publishing 
 own IP (`hostNetwork`), `kube-state-metrics` on NodePort `30080`, and the `prometheus` ServiceAccount
 with its token.
 
-`requests` equal `limits` on both exporters (20m CPU / 64Mi for node-exporter; 100m / 192Mi for
-kube-state-metrics) so neither can burst and perturb a benchmark run.
+`requests` equal `limits` on both exporters (20m CPU / 64Mi each) so neither can burst and perturb a
+benchmark run. On a large cluster, kube-state-metrics has more objects to report; if scrapes of `:30080`
+start timing out, raise its CPU request and limit together.
 
 ### Step 3 — Install node_exporter on the load client
 
 The load-generating host is not a cluster node, so the DaemonSet does not cover it. Install the distro
-package instead of a container, to keep the client's container runtime idle during runs:
+package instead of a container, to keep the client's container runtime idle during runs.
+
+The script supports **Debian/Ubuntu only** (it uses `apt-get`) and needs **passwordless `sudo`** on the
+load client: `ssh ... 'bash -s'` has no terminal, so a `sudo` password prompt fails.
 
 ```bash
 ssh SSH_USER@LOAD_CLIENT_IP 'bash -s' < Monitoring/node_exporter/install_node_exporter.sh
@@ -257,7 +274,14 @@ sed -e "s|__CONTROL_PLANE_IP__|10.0.0.11|g" \
 ```
 
 Append the rendered jobs to the **`scrape_configs:` list** of `prometheus.yml` on the Prometheus host.
-They are already indented to sit directly under that key. Back the file up first:
+They are already indented to sit directly under that key.
+
+Appending only works if `scrape_configs:` is the **last** top-level key in the file. It is in the Step 0
+config. If you are using an existing Prometheus whose file has another section after it (such as
+`rule_files:` or `alerting:`), paste the jobs into the list by hand instead. Run this step only once: a
+second append duplicates every job name, and `promtool` rejects the file.
+
+Back the file up, append, and delete both copies of the rendered file, since it contains the token:
 
 ```bash
 scp /tmp/crdp-jobs.yml SSH_USER@PROM_HOST:/tmp/
@@ -265,16 +289,14 @@ ssh SSH_USER@PROM_HOST '
   sudo cp /etc/prometheus/prometheus.yml /etc/prometheus/prometheus.yml.bak.$(date +%F-%H%M%S)
   cat /tmp/crdp-jobs.yml | sudo tee -a /etc/prometheus/prometheus.yml >/dev/null
   rm -f /tmp/crdp-jobs.yml'
+rm -f /tmp/crdp-jobs.yml
 ```
 
-**Validate before reloading.** A malformed config stops Prometheus from starting:
+**Validate before reloading.** A malformed config stops Prometheus from starting. The file is mounted
+into the container, so `promtool` can check it in place:
 
 ```bash
-ssh SSH_USER@PROM_HOST '
-  sudo cp /etc/prometheus/prometheus.yml ~/check.yml && sudo chown $USER ~/check.yml
-  sudo docker cp ~/check.yml prometheus:/tmp/check.yml
-  sudo docker exec prometheus promtool check config /tmp/check.yml
-  rm -f ~/check.yml'
+ssh SSH_USER@PROM_HOST 'sudo docker exec prometheus promtool check config /etc/prometheus/prometheus.yml'
 ```
 
 Apply it:
@@ -286,8 +308,8 @@ ssh SSH_USER@PROM_HOST 'curl -X POST http://localhost:9090/-/reload'
 ssh SSH_USER@PROM_HOST 'sudo docker restart prometheus'
 ```
 
-> The rendered file contains a credential. Delete it when done, and never commit it. `.gitignore`
-> already excludes `*.token`, `k8s-token` and `scrape_configs.rendered.yml`.
+> The rendered file contains a credential. Never commit it. `.gitignore` already excludes `*.token`,
+> `k8s-token` and `scrape_configs.rendered.yml`.
 >
 > If Prometheus runs inside a container that bind-mounts only `prometheus.yml`, the token must be
 > **inlined** as `authorization.credentials` (the template's default) because a sibling token file is not
@@ -301,7 +323,7 @@ curl -s http://PROM_HOST:9090/api/v1/targets \
   | python3 -c 'import sys,json; [print("%-26s %-8s %s" % (t["labels"]["job"], t["health"], t.get("lastError",""))) for t in json.load(sys.stdin)["data"]["activeTargets"]]'
 ```
 
-For a three-node cluster you should see **20 targets across 10 jobs**: `node-exporter` 4 (three nodes plus
+For a three-node cluster you should see **19 targets across 10 jobs**: `node-exporter` 4 (three nodes plus
 the load client), `cadvisor` 3, `kubelet` 3, `kube-proxy` 3, and one each of `etcd`, `kube-scheduler`,
 `kube-controller-manager`, `kube-apiserver`, `kube-state-metrics` and `prometheus`.
 
@@ -362,7 +384,8 @@ curl -s http://CONTROL_PLANE_IP:30080/metrics | grep -c '^kube_pod_info'
 curl -sk -H "Authorization: Bearer $TOKEN" \
      https://CONTROL_PLANE_IP:10250/metrics/cadvisor | head -3
 
-# 3. CRDP pods survived the RKE2 restart: 24/24 Running, zero restarts.
+# 3. CRDP pods survived the RKE2 restart: every replica Running, zero restarts.
+$KUBECTL get deploy crdp-deployment   # READY should read N/N
 $KUBECTL get pods -l run=crdp --no-headers | grep -c Running
 $KUBECTL get pods -l run=crdp \
   -o jsonpath='{range .items[*]}{.status.containerStatuses[0].restartCount}{"\n"}{end}' \
@@ -380,11 +403,14 @@ Run a load test, then compare what cAdvisor reports against the node-level `/pro
 
 ```bash
 export PROM_URL=http://PROM_HOST:9090
-py benchmark/prom_snapshot.py --start <phase_start_epoch> --end <phase_end_epoch> \
+export NODE_VCPU=16   # vCPUs per cluster node; set this to match your hardware
+python3 benchmark/prom_snapshot.py --start <phase_start_epoch> --end <phase_end_epoch> \
     --rate-window 30s --tps <measured_txns_per_sec> --out results/run1/
 ```
 
-Take the epochs from a client JSON's `wall_start_epoch` / `wall_end_epoch`. The two methods should agree
+Take the epochs from a client JSON's `wall_start_epoch` / `wall_end_epoch`. The `/proc` estimate
+converts busy % to cores using `NODE_VCPU`, which defaults to 16; with the wrong value the two methods
+disagree for no real reason. The two methods should agree
 within about 10 %; the tool flags anything outside that as `DISAGREE -- investigate`.
 
 Neither strictly bounds the other, so do not expect one to always read lower. The `/proc` estimate sweeps
@@ -415,26 +441,34 @@ CRDP's cgroups.
   `scrape_configs.rendered.yml`.
 - **`etcd-expose-metrics: true` serves etcd metrics unauthenticated on `:2381`.** It reveals cluster
   topology and key counts, never key *values*. `node_exporter` (`:9100`), `kube-proxy` (`:10249`) and
-  `kube-state-metrics` (`:30080`) are likewise unauthenticated. This is acceptable on a trusted, isolated
-  network. On any shared network, restrict those ports to the Prometheus host — for example:
+  `kube-state-metrics` (NodePort `30080` for metrics, and `30081` for its own telemetry) are likewise
+  unauthenticated. This is acceptable on a trusted, isolated network. On any shared network, restrict
+  those ports to the Prometheus host — for example:
 
   ```bash
-  sudo ufw allow from PROM_HOST to any port 9100,10249,10250,2381,10257,10259,30080 proto tcp
+  sudo ufw default deny incoming   # an allow rule restricts nothing unless the default is deny
+  sudo ufw allow from PROM_HOST to any port 9100,10249,10250,2381,10257,10259,6443 proto tcp
   ```
 
-- **`insecure_skip_verify: true`** is set on the kubelet, scheduler, controller-manager and apiserver
-  jobs because RKE2's serving certificates are self-signed per node. To verify them properly, mount the
+  Before setting a default of deny on a cluster node, allow the ports RKE2 needs between nodes, or the
+  cluster breaks. NodePorts (`30080`, `30081`) are handled by kube-proxy's iptables rules before
+  traffic reaches ufw's rules, so ufw may not restrict them. Check from a host other than Prometheus.
+
+- **`insecure_skip_verify: true`** is set on the cadvisor, kubelet, scheduler, controller-manager and
+  apiserver jobs because RKE2's serving certificates are self-signed per node. To verify them properly, mount the
   RKE2 CA (`/var/lib/rancher/rke2/server/tls/server-ca.crt`) into the Prometheus container and replace
   `insecure_skip_verify` with `ca_file`.
-- **Prefer a scoped Grafana service-account token** (*Administration → Service accounts*, role `Editor`)
-  over the admin password for any automation. Passing credentials to `curl -u` exposes them briefly in
+- **Prefer a Grafana service-account token** (*Administration → Service accounts*) over the admin
+  password for any automation. Give it the `Admin` role if it creates data sources, as the Step 5 API
+  call does; `Editor` is enough for importing dashboards only. Passing credentials to `curl -u` exposes them briefly in
   the process list; prefer `--netrc` or a token file.
 
 ## Cost
 
-node_exporter is capped at 20m CPU / 64Mi per node, kube-state-metrics at 100m / 192Mi, with `requests`
-equal to `limits` so neither can burst. On a three-node, 16-vCPU-per-node cluster that is roughly **0.1 %
-of cluster CPU** — small, and measured rather than hidden.
+node_exporter is capped at 20m CPU / 64Mi per node and kube-state-metrics at 20m / 64Mi, with
+`requests` equal to `limits` so neither can burst. On a three-node, 16-vCPU-per-node cluster that is
+80m, roughly **0.2 % of cluster CPU**. On small nodes it still counts against the CRDP sizing budget:
+see the SIZING note in `CRDP_K8_Deployment/crdp-app-svc-ing.yml`.
 
 ## Reference
 

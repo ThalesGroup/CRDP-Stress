@@ -97,13 +97,17 @@ spec:
               name: http-metrics
             - containerPort: 8081
               name: telemetry
+          # requests == limits (Guaranteed QoS) so it can never burst and perturb a
+          # benchmark run, and reserves no more CPU than it did before. Its work
+          # scales with the number of API objects; raise both values together if
+          # scrapes of :30080 start timing out on a large cluster.
           resources:
             requests:
               cpu: 20m
               memory: 64Mi
             limits:
-              cpu: 100m
-              memory: 192Mi
+              cpu: 20m
+              memory: 64Mi
           livenessProbe:
             httpGet:
               path: /healthz
