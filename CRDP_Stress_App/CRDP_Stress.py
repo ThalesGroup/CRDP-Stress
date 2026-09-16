@@ -232,15 +232,6 @@ match(charSetValue):
         print(colored(tmpStr, "yellow", attrs=["bold"]))
         exit()
 
-
-# Reserve some variables for later use
-p_data_array = []  # reserve for later use - cleartext (plaintext)
-c_data = []  # reserve for later use - protectedtext
-c_data_array = []  # reserve for later use - protectedtext
-c_version = []  # reserve for later use - cipher version
-r_data = []  # reserve for later use - revealedtext
-r_data_array = []  # reserve for later use - revealtext
-
 # Build the workload (p_count items) and the plaintext array (p_data_array).
 # Then split p_data_array into bulk messages of size `batchsize`.
 f_content = None
@@ -292,7 +283,6 @@ if csvListFile:
     p_data_array = base_cells * iterations
     p_count = len(p_data_array)
     data_size = sum(len(cell.encode("utf-8")) for cell in p_data_array)
-    p_data = p_data_array[0]
 
 elif payloadFile:
     p_count = iterations
@@ -302,7 +292,6 @@ elif payloadFile:
         f_content = f.read()
         f_encoded = base64.b64encode(f_content).decode("ascii")
 
-    p_data = f_encoded
     p_data_array = [f_encoded] * p_count
 
 else:
@@ -333,27 +322,20 @@ print(colored("*** CRDP PROTECTION Test Started ***", "white", attrs=["bold"]))
 
 protect_cpu = ClientCpuSampler().start()
 if numThreads > 1:
-    starttime = time.time()
-    protect_agg_metrics, c_data_array, c_version = execute_protect_messages_parallel(
+    protect_agg_metrics, c_data_array = execute_protect_messages_parallel(
         messages, numThreads, endpointCRDP, protectionPolicy
     )
-    endtime = time.time()
-    protect_time = endtime - starttime
 else:
     starttime = time.time()
     c_data_array = []
-    c_version = None
     protect_records = []
     for msg in tqdm(messages, desc="Bulk PROTECT Progress"):
         call_start = time.time()
-        chunk, version = protectBulkData(endpointCRDP, msg, protectionPolicy)
+        chunk = protectBulkData(endpointCRDP, msg, protectionPolicy)
         call_end = time.time()
         protect_records.append((call_start, call_end, len(msg)))
         c_data_array.extend(chunk)
-        if c_version is None:
-            c_version = version
     endtime = time.time()
-    protect_time = endtime - starttime
     # Build the same rich metrics object the parallel path produces so the
     # single-thread baseline is directly comparable.
     protect_agg_metrics = single_worker_aggregate(protect_records, starttime, endtime)
@@ -376,24 +358,20 @@ else:
 
 reveal_cpu = ClientCpuSampler().start()
 if numThreads > 1:
-    starttime = time.time()
     reveal_agg_metrics, r_data_array = execute_reveal_messages_parallel(
-        reveal_messages, numThreads, endpointCRDP, protectionPolicy, c_version, r_user
+        reveal_messages, numThreads, endpointCRDP, protectionPolicy, r_user
     )
-    endtime = time.time()
-    reveal_time = endtime - starttime
 else:
     starttime = time.time()
     r_data_array = []
     reveal_records = []
     for msg in tqdm(reveal_messages, desc="Bulk REVEAL Progress"):
         call_start = time.time()
-        chunk = revealBulkData(endpointCRDP, msg, protectionPolicy, c_version, r_user)
+        chunk = revealBulkData(endpointCRDP, msg, protectionPolicy, r_user)
         call_end = time.time()
         reveal_records.append((call_start, call_end, len(msg)))
         r_data_array.extend(chunk)
     endtime = time.time()
-    reveal_time = endtime - starttime
     reveal_agg_metrics = single_worker_aggregate(reveal_records, starttime, endtime)
 reveal_cpu.stop()
 

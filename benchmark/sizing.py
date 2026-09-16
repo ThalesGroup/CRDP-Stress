@@ -64,7 +64,6 @@ def main():
     drive = [p for p in per_profile if p.get("protect_tps_per_client_core")]
     loadgen = None
     if drive:
-        worst = min(drive, key=lambda p: p["protect_tps_per_client_core"])  # lowest per-core drive = most hosts
         best = max(drive, key=lambda p: p.get("protect_measured_tps") or 0)  # highest throughput profile
         client_cores = math.ceil(args.target / best["protect_tps_per_client_core"])
         loadgen = {

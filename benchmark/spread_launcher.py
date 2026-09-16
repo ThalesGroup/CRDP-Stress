@@ -21,7 +21,6 @@ import json
 import os
 import subprocess
 import sys
-import time
 
 # Import aggregate_phase from the sibling CRDP_Stress_App package.
 _HERE = os.path.dirname(os.path.abspath(__file__))

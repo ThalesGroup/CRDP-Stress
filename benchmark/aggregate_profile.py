@@ -18,7 +18,6 @@ import argparse
 import glob
 import json
 import os
-import statistics
 
 
 def load_json(path):
